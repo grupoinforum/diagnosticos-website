@@ -1,347 +1,560 @@
-// app/api/submit/route.ts
-export const runtime = "nodejs";
+// app/diagnostico/diagnostico-content.tsx
+"use client";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
 export const dynamic = "force-dynamic";
 
-import { NextResponse } from "next/server";
+/* =========================
+   PREGUNTAS – SIN PUNTUACIÓN
+   ========================= */
+const QUESTIONS = [
+  {
+    id: "industria",
+    label: "¿En qué industria opera la compañía?",
+    type: "single" as const,
+    options: [
+      { value: "produccion", label: "Producción" },
+      { value: "distribucion", label: "Distribución" },
+      { value: "retail", label: "Retail" },
+      { value: "servicios", label: "Servicios" },
+      { value: "inmobiliaria_desarrollo", label: "Inmobiliaria y Desarrollo" },
+      { value: "restaurante", label: "Restaurante" },
+      { value: "otro", label: "Otro (especificar)", requiresText: true },
+    ],
+    required: true,
+  },
+  {
+    id: "erp",
+    label: "¿Qué sistema empresarial (ERP) utiliza actualmente su empresa?",
+    type: "single" as const,
+    options: [
+      { value: "sapb1", label: "SAP Business One" },
+      { value: "sistema_propio", label: "Sistema Propio" },
+      { value: "erp_otro", label: "Otro (especificar)", requiresText: true },
+    ],
+    required: true,
+  },
+  {
+    id: "busca",
+    label: "¿Estás buscando un sistema o un servicio en particular?",
+    type: "single" as const,
+    options: [
+      { value: "sistema", label: "Sistema (especificar)", requiresText: true },
+      { value: "servicio", label: "Servicio (especificar)", requiresText: true },
+    ],
+    required: true,
+  },
+] as const;
 
-/* ========= Tipos ========= */
-type Answer = { id: string; value: string; score: 1 | 2; extraText?: string };
-type Payload = {
-  name: string;
-  company?: string;
-  role?: string;           // <-- NUEVO: Cargo en la empresa
-  email: string;
-  country?: string;
-  phone?: string;
-  answers?: { utms?: Record<string, string>; items?: Answer[] } | any;
-  score1Count?: number;
-  qualifies?: boolean;
-  resultText?: string;
+type Answer = { id: string; value: string; extraText?: string };
+
+/* =========================
+   PAÍSES / PREFIJOS / REGLAS
+   ========================= */
+const COUNTRIES = [
+  { value: "GT", label: "Guatemala" },
+  { value: "SV", label: "El Salvador" },
+  { value: "HN", label: "Honduras" },
+  { value: "PA", label: "Panamá" },
+  { value: "DO", label: "República Dominicana" },
+  { value: "EC", label: "Ecuador" },
+] as const;
+
+type CountryValue = (typeof COUNTRIES)[number]["value"];
+
+const COUNTRY_PREFIX: Record<CountryValue, string> = {
+  GT: "+502",
+  SV: "+503",
+  HN: "+504",
+  PA: "+507",
+  DO: "+1",
+  EC: "+593",
 };
 
-/* ========= Env ========= */
-const PD_DOMAIN = process.env.PIPEDRIVE_DOMAIN!;
-const PD_API = process.env.PIPEDRIVE_API_KEY!;
-const PD_PERSON_ROLE_FIELD = process.env.PD_PERSON_ROLE_FIELD; // <-- opcional, key del campo custom
+const COUNTRY_PHONE_RULES: Record<
+  CountryValue,
+  { min: number; max?: number; note?: string }
+> = {
+  GT: { min: 8 },
+  SV: { min: 8 },
+  HN: { min: 8 },
+  PA: { min: 8 },
+  DO: { min: 10 },
+  EC: { min: 9, note: "Usa tu número móvil (9 dígitos)" },
+};
 
-const BREVO_USER = process.env.BREVO_SMTP_USER;
-const BREVO_PASS = process.env.BREVO_SMTP_PASS;
-const EMAIL_FROM = process.env.EMAIL_FROM || "Inforum <info@inforumsol.com>";
+const DEFAULT_PREFIX = "+502";
 
-/* ========= Pipedrive: pipelines por país ========= */
-const PIPELINES = {
-  GT: Number(process.env.PD_PIPELINE_GT ?? 1),
-  SV: Number(process.env.PD_PIPELINE_SV ?? 2),
-  HN: Number(process.env.PD_PIPELINE_HN ?? 3),
-  DO: Number(process.env.PD_PIPELINE_DO ?? 4),
-  EC: Number(process.env.PD_PIPELINE_EC ?? 5),
-  PA: Number(process.env.PD_PIPELINE_PA ?? 6),
-} as const;
+/* =========================
+   EMAIL corporativo simple
+   ========================= */
+const FREE_EMAIL_DOMAINS = [
+  "gmail.com",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "icloud.com",
+  "proton.me",
+  "aol.com",
+  "live.com",
+  "msn.com",
+];
 
-/* ========= Pipedrive: Etapa “Capa 1” por país ========= */
-const STAGE_CAPA1 = {
-  GT: Number(process.env.PD_STAGE_GT_CAPA1 ?? 6),
-  SV: Number(process.env.PD_STAGE_SV_CAPA1 ?? 7),
-  HN: Number(process.env.PD_STAGE_HN_CAPA1 ?? 13),
-  DO: Number(process.env.PD_STAGE_DO_CAPA1 ?? 19),
-  EC: Number(process.env.PD_STAGE_EC_CAPA1 ?? 25),
-  PA: Number(process.env.PD_STAGE_PA_CAPA1 ?? 31),
-} as const;
-
-/* ========= Helpers ========= */
-function countryToCode(label?: string): keyof typeof PIPELINES {
-  if (!label) return "GT";
-  const x = label.trim().toUpperCase();
-  if (["GT", "SV", "HN", "DO", "EC", "PA"].includes(x)) return x as any;
-
-  const MAP: Record<string, keyof typeof PIPELINES> = {
-    "GUATEMALA": "GT",
-    "EL SALVADOR": "SV",
-    "HONDURAS": "HN",
-    "PANAMÁ": "PA",
-    "PANAMA": "PA",
-    "REPÚBLICA DOMINICANA": "DO",
-    "REPUBLICA DOMINICANA": "DO",
-    "ECUADOR": "EC",
-  };
-  return MAP[x] ?? "GT";
+function isCorporateEmail(email: string) {
+  const domain = email.split("@").pop()?.toLowerCase().trim();
+  if (!domain) return false;
+  return !FREE_EMAIL_DOMAINS.includes(domain);
 }
 
-async function pd(path: string, init?: RequestInit) {
-  const url = `https://${PD_DOMAIN}.pipedrive.com/api/v1${path}${path.includes("?") ? "&" : "?"}api_token=${PD_API}`;
-  const res = await fetch(url, init);
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Pipedrive ${path} → ${res.status} ${text}`);
-  try { return JSON.parse(text); } catch { return text as any; }
-}
-
-function absoluteOriginFromReq(req: Request) {
-  const proto = (req.headers.get("x-forwarded-proto") || "https").split(",")[0].trim();
-  const host = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").split(",")[0].trim();
-  if (!host) return "https://inforum-diagnostico.vercel.app";
-  return `${proto}://${host}`;
-}
-
-/* ========= Email (Brevo + Nodemailer) ========= */
-const VIDEO_ID = "Eau96xNp3Ds";
-const VIDEO_URL = `https://youtu.be/${VIDEO_ID}`;
-
-function buildEmailBodies(data: Payload, origin: string) {
-  const qualifies = !!data.qualifies;
-
-  const subject = qualifies
-    ? "Tu diagnóstico califica – Grupo Inforum"
-    : "Gracias por tu diagnóstico – Grupo Inforum";
-
-  const lead = qualifies
-    ? "¡Felicidades! Estás a 1 paso de obtener tu asesoría sin costo. Rita Muralles se estará comunicando contigo para agendar una sesión corta de 30min para presentarnos y realizar unas últimas dudas para guiarte de mejor manera."
-    : "¡Gracias por llenar el cuestionario! Por el momento nuestro equipo se encuentra con cupo lleno. Te estaremos contactando al liberar espacio. Por lo pronto te invitamos a conocer más de Inforum.";
-
-  const SITE_URL = "https://www.grupoinforum.com";
-  const THUMB_URL = `${origin}/video.png`;
-
-  const text = `${lead}
-
-Mira el video: ${VIDEO_URL}
-
-Visita nuestro website: ${SITE_URL}`.trim();
-
-  const html = `
-<div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;line-height:1.55;color:#111">
-  <p style="margin:0 0 14px">${lead}</p>
-
-  <a href="${VIDEO_URL}" target="_blank" rel="noopener" style="text-decoration:none;border:0;display:inline-block;margin:6px 0 18px">
-    <img src="${THUMB_URL}" width="560" style="max-width:100%;height:auto;border:0;display:block;border-radius:12px" alt="Ver video en YouTube" />
-  </a>
-
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0">
-    <tr>
-      <td bgcolor="#1D4ED8" style="border-radius:10px">
-        <a href="${SITE_URL}" target="_blank" rel="noopener"
-           style="font-size:16px;line-height:16px;font-weight:600;color:#ffffff;text-decoration:none;padding:12px 18px;display:inline-block">
-          Visita nuestro website
-        </a>
-      </td>
-    </tr>
-  </table>
-</div>
-`.trim();
-
-  return { subject, text, html };
-}
-
-async function sendEmailConfirmation(data: Payload, req: Request) {
-  if (!BREVO_USER || !BREVO_PASS) {
-    console.warn("Brevo SMTP no configurado. No se envía correo.");
-    return;
-  }
-  const nodemailer = await import("nodemailer");
-  const transporter = nodemailer.createTransport({
-    host: "smtp-relay.brevo.com",
-    port: 587,
-    auth: { user: BREVO_USER, pass: BREVO_PASS },
+/* =========================
+   API HELPER
+   ========================= */
+async function submitDiagnostico(payload: any) {
+  const res = await fetch("/api/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
-
-  const { subject, text, html } = buildEmailBodies(data, absoluteOriginFromReq(req));
-
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to: data.email,
-    subject,
-    text,
-    html,
-  });
-  console.log(`✅ Email enviado a ${data.email}`);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.ok === false)
+    throw new Error(json?.error || `Error ${res.status}`);
+  return json;
 }
 
-/* ========= Persona en Pipedrive (crear/actualizar con phone + role) ========= */
-async function upsertPersonWithPhoneAndRole(data: Payload) {
-  const email = data.email;
-  const phone = data.phone?.trim();
-  const role = (data.role || "").trim();
+/* =========================
+   COMPONENTE
+   ========================= */
+export default function DiagnosticoContent() {
+  const searchParams = useSearchParams();
+  const [step, setStep] = useState(1);
+  const [answers, setAnswers] = useState<Record<string, Answer | undefined>>({});
+  const [form, setForm] = useState<{
+    name: string;
+    company: string;
+    role: string;
+    email: string;
+    country: CountryValue;
+    consent: boolean;
+    phoneLocal: string; // parte local SIN prefijo
+  }>({
+    name: "",
+    company: "",
+    role: "",
+    email: "",
+    country: "GT",
+    consent: false,
+    phoneLocal: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [resultUI, setResultUI] = useState<null | { title: string; message: string }>(
+    null
+  );
 
-  // 1) Buscar por email
-  let personId: number | null = null;
-  try {
-    const search = await pd(`/persons/search?term=${encodeURIComponent(email)}&fields=email&exact_match=true`);
-    const item = (search as any)?.data?.items?.[0];
-    if (item?.item?.id) personId = item.item.id;
-  } catch (e) {
-    console.error("[persons/search]", (e as Error).message);
-  }
+  const utms = useMemo(() => {
+    const keys = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_content",
+      "utm_term",
+    ] as const;
+    const x: Record<string, string> = {};
+    keys.forEach((k) => {
+      const v = searchParams.get(k);
+      if (v) x[k] = v;
+    });
+    return x;
+  }, [searchParams]);
 
-  // Helper: construir cuerpo con campos opcionales
-  const buildBody = () => {
-    const body: any = { name: data.name };
-    if (phone) body.phone = [{ value: phone, primary: true, label: "work" }];
-    // Guardar cargo en campo custom si está configurado
-    if (PD_PERSON_ROLE_FIELD && role) body[PD_PERSON_ROLE_FIELD] = role;
-    return body;
+  const progressPct = useMemo(() => (step / 3) * 100, [step]);
+  const barWidth = progressPct + "%";
+
+  const handleSelect = (qid: string, optionValue: string) => {
+    const q = QUESTIONS.find((q) => q.id === qid)!;
+    const opt = q.options.find((o) => o.value === optionValue)!;
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { id: qid, value: optionValue },
+    }));
   };
 
-  // 2) Si existe → actualizar
-  if (personId) {
+  const handleExtraText = (qid: string, text: string) => {
+    const existing = answers[qid];
+    if (!existing) return;
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { ...existing, extraText: text },
+    }));
+  };
+
+  const shouldShowExtraInput = (qid: string) => {
+    const q = QUESTIONS.find((qq) => qq.id === qid);
+    if (!q) return false;
+    const selected = answers[qid]?.value;
+    const selectedOpt = q.options.find((o) => o.value === selected) as any;
+    return !!selectedOpt?.requiresText;
+  };
+
+  const canContinueQuestions = useMemo(
+    () => QUESTIONS.every((q) => !!answers[q.id]),
+    [answers]
+  );
+
+  /* =========================
+     TELÉFONO con prefijo y reglas
+     ========================= */
+  const selectedPrefix = useMemo(
+    () => COUNTRY_PREFIX[form.country] ?? DEFAULT_PREFIX,
+    [form.country]
+  );
+
+  const phoneFull = useMemo(() => {
+    const local = (form.phoneLocal || "").replace(/[^\d]/g, "");
+    return `${selectedPrefix}${local ? " " + local : ""}`;
+  }, [form.phoneLocal, selectedPrefix]);
+
+  const isPhoneValid = (local: string, country: CountryValue) => {
+    const digits = (local || "").replace(/[^\d]/g, "");
+    const rule = COUNTRY_PHONE_RULES[country];
+    if (!rule) return digits.length >= 8; // fallback
+    const meetsMin = digits.length >= rule.min;
+    const meetsMax = rule.max ? digits.length <= rule.max : true;
+    return meetsMin && meetsMax;
+  };
+
+  const phoneRequirementText = (() => {
+    const rule = COUNTRY_PHONE_RULES[form.country];
+    if (!rule) return "Ingresa al menos 8 dígitos del número local.";
+    const minTxt = `${rule.min} dígitos`;
+    const maxTxt = rule.max ? ` (máx. ${rule.max})` : "";
+    const note = rule.note ? ` · ${rule.note}` : "";
+    return `Ingresa ${minTxt}${maxTxt} del número local${note}.`;
+  })();
+
+  const canContinueData = useMemo(
+    () =>
+      form.name.trim().length > 1 &&
+      form.company.trim().length > 1 &&
+      form.role.trim().length > 1 &&
+      /.+@.+\..+/.test(form.email) &&
+      isCorporateEmail(form.email) &&
+      isPhoneValid(form.phoneLocal, form.country),
+    [form]
+  );
+
+  const onSubmit = async () => {
+    setErrorMsg(null);
+    if (!form.consent) {
+      setErrorMsg("Debes aceptar el consentimiento para continuar.");
+      return;
+    }
+    setLoading(true);
+
     try {
-      await pd(`/persons/${personId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildBody()),
+      const finalAnswers = Object.values(answers).filter(Boolean) as Answer[];
+      const countryLabel =
+        COUNTRIES.find((c) => c.value === form.country)?.label || form.country;
+
+      await submitDiagnostico({
+        name: form.name,
+        company: form.company,
+        role: form.role,
+        email: form.email,
+        country: countryLabel,
+        phone: phoneFull,
+        answers: { utms, items: finalAnswers },
       });
-    } catch (e) {
-      console.error("[persons PUT]", (e as Error).message);
-    }
-    return personId;
-  }
 
-  // 3) Si no existe → crear
-  try {
-    const createBody: any = {
-      name: data.name,
-      email: [{ value: email, primary: true, label: "work" }],
-    };
-    if (phone) createBody.phone = [{ value: phone, primary: true, label: "work" }];
-    if (PD_PERSON_ROLE_FIELD && role) createBody[PD_PERSON_ROLE_FIELD] = role;
-
-    const created = await pd(`/persons`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(createBody),
-    });
-    return (created as any)?.data?.id as number | null;
-  } catch (e) {
-    console.error("[persons POST]", (e as Error).message);
-    return null;
-  }
-}
-
-/* ========= Util: resumen breve de respuestas ========= */
-function briefAnswersSummary(answers?: Payload["answers"]) {
-  try {
-    const items: Answer[] | undefined = answers?.items;
-    if (!Array.isArray(items) || !items.length) return "";
-    const mapLabel: Record<string, string> = {
-      industria: "Industria",
-      erp: "ERP",
-      busca: "Búsqueda",
-      personas: "Personas",
-      satisfaccion: "Satisfacción",
-    };
-    const lines = items.map((a) => {
-      const k = mapLabel[a.id] || a.id;
-      const extra = a.extraText ? ` (${a.extraText})` : "";
-      return `- ${k}: ${a.value}${extra} [score=${a.score}]`;
-    });
-    return lines.join("\n");
-  } catch {
-    return "";
-  }
-}
-
-/* ========= API ========= */
-export async function POST(req: Request) {
-  try {
-    const data = (await req.json()) as Payload;
-    if (!data?.name || !data?.email) {
-      return NextResponse.json({ ok: false, error: "Faltan nombre o email" }, { status: 400 });
-    }
-
-    const cc = countryToCode(data.country);
-    const pipeline_id = PIPELINES[cc];
-    const stage_id = STAGE_CAPA1[cc];
-
-    // 1) Persona (buscar o crear) con phone + role
-    const personId = await upsertPersonWithPhoneAndRole(data);
-
-    // 2) Organización (opcional)
-    let orgId: number | undefined;
-    if (data.company) {
-      try {
-        const s = await pd(`/organizations/search?term=${encodeURIComponent(data.company)}&exact_match=true`);
-        const it = (s as any)?.data?.items?.[0];
-        orgId = it?.item?.id;
-      } catch {}
-      if (!orgId) {
-        try {
-          const o = await pd(`/organizations`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: data.company }),
-          });
-          orgId = (o as any)?.data?.id;
-        } catch (e) {
-          console.error("[organizations POST]", (e as Error).message);
-        }
-      }
-    }
-
-    // 3) Deal
-    console.log(`[Deals] Creando deal → cc=${cc} pipeline=${pipeline_id} stage=${stage_id}`);
-    const deal = await pd(`/deals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: `Diagnóstico – ${data.name}`,
-        person_id: personId!,
-        org_id: orgId,
-        pipeline_id,
-        stage_id,
-        value: 0,
-        currency: "GTQ",
-      }),
-    });
-    const dealId = (deal as any)?.data?.id;
-    console.log(`🟢 Deal #${dealId} creado en pipeline ${pipeline_id}, stage ${stage_id}`);
-
-    // 4) Nota con contexto (incluye teléfono, cargo y evaluación)
-    try {
-      let score2Count: number | undefined;
-      try {
-        if (Array.isArray(data.answers?.items)) {
-          score2Count = (data.answers.items as Answer[]).filter((a) => a.score === 2).length;
-        }
-      } catch {}
-
-      const answersBrief = briefAnswersSummary(data.answers);
-
-      const content =
-        `Formulario diagnóstico\n` +
-        `• Nombre: ${data.name}\n` +
-        (data.company ? `• Empresa: ${data.company}\n` : "") +
-        (data.role ? `• Cargo: ${data.role}\n` : "") +            // <-- agregado
-        `• Email: ${data.email}\n` +
-        (data.country ? `• País: ${data.country}\n` : "") +
-        (data.phone ? `• Teléfono: ${data.phone}\n` : "") +
-        (typeof data.qualifies !== "undefined"
-          ? `• Resultado: ${data.qualifies ? "✅ Sí califica" : "❌ No califica"}\n`
-          : "") +
-        (typeof data.resultText !== "undefined"
-          ? `• Evaluación: ${data.resultText}\n`
-          : "") +
-        (typeof data.score1Count !== "undefined"
-          ? `• # de respuestas score=1: ${data.score1Count}\n`
-          : "") +
-        (typeof score2Count !== "undefined"
-          ? `• # de respuestas score=2: ${score2Count}\n`
-          : "") +
-        (answersBrief ? `\nResumen:\n${answersBrief}\n` : "") +
-        (data.answers ? `\nRespuestas (JSON):\n${JSON.stringify(data.answers, null, 2)}` : "");
-
-      await pd(`/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, deal_id: dealId, person_id: personId!, org_id: orgId }),
+      setResultUI({
+        title: "Formulario enviado",
+        message:
+          "Gracias por compartirnos esta información. Nuestro equipo revisará tus respuestas y te contactará para acompañarte en los siguientes pasos.",
       });
-    } catch (e) {
-      console.error("[notes POST]", (e as Error).message);
+    } catch (e: any) {
+      setErrorMsg(e?.message || "No se logró enviar. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // 5) Email (no bloqueante)
-    try { await sendEmailConfirmation(data, req); } catch (e) { console.error("[email]", (e as Error).message); }
+  /* =========================
+     RESULTADO
+     ========================= */
+  if (resultUI) {
+    return (
+      <main className="max-w-3xl mx-auto p-6">
+        <div className="w-full h-2 bg-gray-200 rounded mb-6">
+          <div className="h-2 bg-blue-500 rounded" style={{ width: "100%" }} />
+        </div>
 
-    return NextResponse.json({ ok: true, message: "Deal creado, persona actualizada, nota agregada y correo enviado" });
-  } catch (e: any) {
-    console.error("[/api/submit] Error:", e?.message || e);
-    return NextResponse.json({ ok: false, error: e?.message || "No se logró enviar" }, { status: 500 });
+        <h1 className="text-2xl font-semibold mb-3">{resultUI.title}</h1>
+        <p className="whitespace-pre-line text-gray-800 leading-relaxed">
+          {resultUI.message}
+        </p>
+
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:gap-4">
+          <a
+            href="https://www.grupoinforum.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-5 py-3 rounded-2xl bg-[#082a49] text-white text-center"
+          >
+            Visita nuestro website
+          </a>
+
+          <a
+            href="https://wa.me/50242170962?text=Hola%2C%20vengo%20del%20formulario%20de%20software%20de%20gesti%C3%B3n"
+            className="inline-block px-5 py-3 rounded-2xl bg-blue-600 text-white text-center"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ir a WhatsApp
+          </a>
+        </div>
+      </main>
+    );
   }
-}
 
+  /* =========================
+     FORMULARIO
+     ========================= */
+  return (
+    <main className="max-w-3xl mx-auto p-6">
+      {/* Barra de progreso */}
+      <div className="w-full h-2 bg-gray-200 rounded mb-6">
+        <div
+          className="h-2 bg-blue-500 rounded transition-all"
+          style={{ width: barWidth }}
+        />
+      </div>
+
+      {/* Título y descripción */}
+      <h1 className="text-2xl font-semibold mb-4">
+        Análisis de Software de Gestión Empresarial
+      </h1>
+      <p className="text-gray-600 mb-4">
+        Completa el cuestionario para que podamos analizar tu situación actual y
+        entender qué soluciones se ajustan mejor a las necesidades de tu
+        empresa.
+      </p>
+
+      {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
+
+      {/* Paso 1 */}
+      {step === 1 && (
+        <section className="space-y-6">
+          {QUESTIONS.map((q) => (
+            <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
+              <label className="font-medium block mb-3">{q.label}</label>
+              <div className="space-y-2">
+                {q.options.map((o) => (
+                  <div key={o.value} className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      id={`${q.id}_${o.value}`}
+                      name={q.id}
+                      className="cursor-pointer"
+                      onChange={() => handleSelect(q.id, o.value)}
+                      checked={answers[q.id]?.value === o.value}
+                    />
+                    <label
+                      htmlFor={`${q.id}_${o.value}`}
+                      className="cursor-pointer"
+                    >
+                      {o.label}
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              {/* Campo libre solo si la opción seleccionada lo requiere */}
+              {shouldShowExtraInput(q.id) && (
+                <input
+                  type="text"
+                  placeholder="Especifica aquí"
+                  className="mt-3 w-full border rounded-xl px-3 py-2"
+                  onChange={(e) => handleExtraText(q.id, e.target.value)}
+                />
+              )}
+            </div>
+          ))}
+          <div className="flex justify-end">
+            <button
+              onClick={() => setStep(2)}
+              disabled={!canContinueQuestions}
+              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Paso 2 */}
+      {step === 2 && (
+        <section className="space-y-4">
+          <div>
+            <label className="block mb-1">Nombre</label>
+            <input
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block mb-1">Empresa</label>
+            <input
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+            />
+          </div>
+
+          {/* Cargo en la empresa (obligatorio) */}
+          <div>
+            <label className="block mb-1">Cargo en la empresa</label>
+            <input
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              placeholder="Ej.: Gerente de TI"
+            />
+          </div>
+
+          <div>
+            <label className="block mb-1">Correo empresarial</label>
+            <input
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+            {form.email && !isCorporateEmail(form.email) && (
+              <p className="text-sm text-red-600 mt-1">
+                Usa un correo corporativo (no gmail/hotmail/outlook/yahoo, etc.).
+              </p>
+            )}
+          </div>
+
+          {/* País */}
+          <div>
+            <label className="block mb-1">País</label>
+            <select
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.country}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  country: e.target.value as CountryValue,
+                })
+              }
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Teléfono con prefijo automático */}
+          <div>
+            <label className="block mb-1">Teléfono</label>
+            <div className="flex">
+              <span className="inline-flex items-center rounded-l border border-r-0 bg-gray-50 px-3 text-sm">
+                {selectedPrefix}
+              </span>
+              <input
+                className="w-full rounded-r border px-3 py-2"
+                value={form.phoneLocal}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    phoneLocal: e.target.value.replace(/[^\d]/g, ""),
+                  })
+                }
+                placeholder="Ingresa tu número (solo dígitos)"
+                inputMode="numeric"
+                pattern="\d*"
+              />
+            </div>
+
+            {!isPhoneValid(form.phoneLocal, form.country) &&
+            form.phoneLocal.length > 0 ? (
+              <p className="text-xs text-red-600 mt-1">{phoneRequirementText}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                Se enviará como: <strong>{phoneFull || selectedPrefix}</strong>
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <button
+              onClick={() => setStep(1)}
+              className="px-5 py-3 rounded-2xl border"
+            >
+              Atrás
+            </button>
+            <button
+              onClick={() => setStep(3)}
+              disabled={!canContinueData}
+              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Paso 3 */}
+      {step === 3 && (
+        <section className="space-y-4">
+          <div className="p-4 rounded-2xl border border-gray-200">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={form.consent}
+                onChange={(e) =>
+                  setForm({ ...form, consent: e.target.checked })
+                }
+              />
+              <span>
+                Autorizo a Grupo Inforum a contactarme respecto a esta
+                evaluación y servicios relacionados. He leído la{" "}
+                {process.env.NEXT_PUBLIC_PRIVACY_URL ? (
+                  <a
+                    href={process.env.NEXT_PUBLIC_PRIVACY_URL}
+                    className="text-blue-600 underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Política de Privacidad
+                  </a>
+                ) : (
+                  <span className="font-medium">Política de Privacidad</span>
+                )}
+              </span>
+            </label>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => setStep(2)}
+              className="px-5 py-3 rounded-2xl border"
+            >
+              Atrás
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={loading || !form.consent}
+              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+            >
+              {loading ? "Enviando..." : "Enviar formulario"}
+            </button>
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
