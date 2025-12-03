@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /* =========================
-   PREGUNTAS (5) – ORDEN ACTUALIZADO
+   PREGUNTAS – SIN PUNTUACIÓN
    ========================= */
 const QUESTIONS = [
   {
@@ -14,11 +14,13 @@ const QUESTIONS = [
     label: "¿En qué industria opera la compañía?",
     type: "single" as const,
     options: [
-      { value: "produccion", label: "Producción", score: 2 },
-      { value: "distribucion", label: "Distribución", score: 2 },
-      { value: "retail", label: "Retail", score: 2 },
-      { value: "servicios", label: "Servicios", score: 2 },               // <-- actualizado
-      { value: "otro", label: "Otro (especificar)", score: 2, requiresText: true }, // <-- actualizado
+      { value: "produccion", label: "Producción" },
+      { value: "distribucion", label: "Distribución" },
+      { value: "retail", label: "Retail" },
+      { value: "servicios", label: "Servicios" },
+      { value: "inmobiliaria_desarrollo", label: "Inmobiliaria y Desarrollo" },
+      { value: "restaurante", label: "Restaurante" },
+      { value: "otro", label: "Otro (especificar)", requiresText: true },
     ],
     required: true,
   },
@@ -27,46 +29,25 @@ const QUESTIONS = [
     label: "¿Qué sistema empresarial (ERP) utiliza actualmente su empresa?",
     type: "single" as const,
     options: [
-      { value: "sapb1", label: "SAP Business One", score: 2 },
-      { value: "sistema_propio", label: "Sistema Propio", score: 2 },
-      { value: "erp_otro", label: "Otro (especificar)", score: 2, requiresText: true },
+      { value: "sapb1", label: "SAP Business One" },
+      { value: "sistema_propio", label: "Sistema Propio" },
+      { value: "erp_otro", label: "Otro (especificar)", requiresText: true },
     ],
     required: true,
   },
   {
     id: "busca",
-    label: "¿Estás buscando un software o servicio en particular para tu empresa?",
+    label: "¿Estás buscando un sistema o un servicio en particular?",
     type: "single" as const,
     options: [
-      { value: "erp", label: "ERP", score: 2 },
-      { value: "otros", label: "Otros (especificar)", score: 2, requiresText: true },
-    ],
-    required: true,
-  },
-  {
-    id: "personas",
-    label: "¿Cuántas personas dependen del sistema para su trabajo diario?",
-    type: "single" as const,
-    options: [
-      { value: ">10", label: "+10 personas", score: 2 },
-      { value: "<=10", label: "-10 personas", score: 1 },
-    ],
-    required: true,
-  },
-  {
-    id: "satisfaccion",
-    label: "¿Nivel de satisfacción con el sistema actual?",
-    type: "single" as const,
-    options: [
-      { value: "1-3", label: "1-3 (insatisfecho)", score: 2 },
-      { value: "4-6", label: "4-6 (puede mejorar)", score: 2 },
-      { value: "7-10", label: "7-10 (cumple)", score: 1 },
+      { value: "sistema", label: "Sistema (especificar)", requiresText: true },
+      { value: "servicio", label: "Servicio (especificar)", requiresText: true },
     ],
     required: true,
   },
 ] as const;
 
-type Answer = { id: string; value: string; score: 1 | 2; extraText?: string };
+type Answer = { id: string; value: string; extraText?: string };
 
 /* =========================
    PAÍSES / PREFIJOS / REGLAS
@@ -80,7 +61,7 @@ const COUNTRIES = [
   { value: "EC", label: "Ecuador" },
 ] as const;
 
-type CountryValue = typeof COUNTRIES[number]["value"];
+type CountryValue = (typeof COUNTRIES)[number]["value"];
 
 const COUNTRY_PREFIX: Record<CountryValue, string> = {
   GT: "+502",
@@ -91,7 +72,10 @@ const COUNTRY_PREFIX: Record<CountryValue, string> = {
   EC: "+593",
 };
 
-const COUNTRY_PHONE_RULES: Record<CountryValue, { min: number; max?: number; note?: string }> = {
+const COUNTRY_PHONE_RULES: Record<
+  CountryValue,
+  { min: number; max?: number; note?: string }
+> = {
   GT: { min: 8 },
   SV: { min: 8 },
   HN: { min: 8 },
@@ -106,32 +90,21 @@ const DEFAULT_PREFIX = "+502";
    EMAIL corporativo simple
    ========================= */
 const FREE_EMAIL_DOMAINS = [
-  "gmail.com","hotmail.com","outlook.com","yahoo.com","icloud.com","proton.me","aol.com","live.com","msn.com"
+  "gmail.com",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "icloud.com",
+  "proton.me",
+  "aol.com",
+  "live.com",
+  "msn.com",
 ];
 
 function isCorporateEmail(email: string) {
   const domain = email.split("@").pop()?.toLowerCase().trim();
   if (!domain) return false;
   return !FREE_EMAIL_DOMAINS.includes(domain);
-}
-
-/* =========================
-   TEXTOS DE RESULTADO
-   ========================= */
-const SUCCESS_TEXT_FORM = `¡Felicidades! Estás a 1 paso de obtener tu asesoría sin costo. Rita Muralles se estará comunicando contigo para agendar una sesión corta de 30min para presentarnos y realizar unas últimas dudas para guiarte de mejor manera. Acabamos de enviarte un correo con esta información.`;
-
-const FULL_TEXT_FORM = `¡Gracias por llenar el cuestionario! Por el momento nuestro equipo se encuentra con cupo lleno. Acabamos de enviarte un correo a tu bandeja de entrada para compartirte más información sobre nosotros. Te estaremos contactando al liberar espacio.`;
-
-/* =========================
-   EVALUACIÓN (regla: si hay alguna respuesta tipo 1 → no califica)
-   ========================= */
-function evaluate(finalAnswers: Answer[]) {
-  const score1Count = finalAnswers.filter(a => a.score === 1).length;
-  const qualifies = score1Count === 0; // si aparece un 1 en cualquier pregunta, no califica
-
-  const resultText = qualifies ? "Sí califica" : "No califica";
-  const uiText = qualifies ? SUCCESS_TEXT_FORM : FULL_TEXT_FORM;
-  return { score1Count, qualifies, resultText, uiText };
 }
 
 /* =========================
@@ -144,7 +117,8 @@ async function submitDiagnostico(payload: any) {
     body: JSON.stringify(payload),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) throw new Error(json?.error || `Error ${res.status}`);
+  if (!res.ok || json?.ok === false)
+    throw new Error(json?.error || `Error ${res.status}`);
   return json;
 }
 
@@ -158,7 +132,7 @@ export default function DiagnosticoContent() {
   const [form, setForm] = useState<{
     name: string;
     company: string;
-    role: string;             // <-- NUEVO campo: Cargo en la empresa
+    role: string;
     email: string;
     country: CountryValue;
     consent: boolean;
@@ -170,16 +144,27 @@ export default function DiagnosticoContent() {
     email: "",
     country: "GT",
     consent: false,
-    phoneLocal: ""
+    phoneLocal: "",
   });
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [resultUI, setResultUI] = useState<null | { qualifies: boolean; title: string; message: string }>(null);
+  const [resultUI, setResultUI] = useState<null | { title: string; message: string }>(
+    null
+  );
 
   const utms = useMemo(() => {
-    const keys = ["utm_source","utm_medium","utm_campaign","utm_content","utm_term"] as const;
-    const x: Record<string,string> = {};
-    keys.forEach(k => { const v = searchParams.get(k); if (v) x[k] = v; });
+    const keys = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_content",
+      "utm_term",
+    ] as const;
+    const x: Record<string, string> = {};
+    keys.forEach((k) => {
+      const v = searchParams.get(k);
+      if (v) x[k] = v;
+    });
     return x;
   }, [searchParams]);
 
@@ -187,26 +172,35 @@ export default function DiagnosticoContent() {
   const barWidth = progressPct + "%";
 
   const handleSelect = (qid: string, optionValue: string) => {
-    const q = QUESTIONS.find(q => q.id === qid)!;
-    const opt = q.options.find(o => o.value === optionValue)!;
-    setAnswers(prev => ({ ...prev, [qid]: { id: qid, value: optionValue, score: (opt.score as 1|2) } }));
+    const q = QUESTIONS.find((q) => q.id === qid)!;
+    const opt = q.options.find((o) => o.value === optionValue)!;
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { id: qid, value: optionValue },
+    }));
   };
 
   const handleExtraText = (qid: string, text: string) => {
     const existing = answers[qid];
     if (!existing) return;
-    setAnswers(prev => ({ ...prev, [qid]: { ...existing, extraText: text } }));
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { ...existing, extraText: text },
+    }));
   };
 
   const shouldShowExtraInput = (qid: string) => {
-    const q = QUESTIONS.find(qq => qq.id === qid);
+    const q = QUESTIONS.find((qq) => qq.id === qid);
     if (!q) return false;
     const selected = answers[qid]?.value;
-    const selectedOpt = q.options.find(o => o.value === selected) as any;
+    const selectedOpt = q.options.find((o) => o.value === selected) as any;
     return !!selectedOpt?.requiresText;
   };
 
-  const canContinueQuestions = useMemo(() => QUESTIONS.every(q => !!answers[q.id]), [answers]);
+  const canContinueQuestions = useMemo(
+    () => QUESTIONS.every((q) => !!answers[q.id]),
+    [answers]
+  );
 
   /* =========================
      TELÉFONO con prefijo y reglas
@@ -252,13 +246,16 @@ export default function DiagnosticoContent() {
 
   const onSubmit = async () => {
     setErrorMsg(null);
-    if (!form.consent) { setErrorMsg("Debes aceptar el consentimiento para continuar."); return; }
+    if (!form.consent) {
+      setErrorMsg("Debes aceptar el consentimiento para continuar.");
+      return;
+    }
     setLoading(true);
 
     try {
       const finalAnswers = Object.values(answers).filter(Boolean) as Answer[];
-      const { score1Count, qualifies, resultText, uiText } = evaluate(finalAnswers);
-      const countryLabel = COUNTRIES.find(c => c.value === form.country)?.label || form.country;
+      const countryLabel =
+        COUNTRIES.find((c) => c.value === form.country)?.label || form.country;
 
       await submitDiagnostico({
         name: form.name,
@@ -268,12 +265,13 @@ export default function DiagnosticoContent() {
         country: countryLabel,
         phone: phoneFull,
         answers: { utms, items: finalAnswers },
-        score1Count,
-        qualifies,
-        resultText,
       });
 
-      setResultUI({ qualifies, title: resultText, message: uiText });
+      setResultUI({
+        title: "Formulario enviado",
+        message:
+          "Gracias por compartirnos esta información. Nuestro equipo revisará tus respuestas y te contactará para acompañarte en los siguientes pasos.",
+      });
     } catch (e: any) {
       setErrorMsg(e?.message || "No se logró enviar. Intenta de nuevo.");
     } finally {
@@ -292,7 +290,9 @@ export default function DiagnosticoContent() {
         </div>
 
         <h1 className="text-2xl font-semibold mb-3">{resultUI.title}</h1>
-        <p className="whitespace-pre-line text-gray-800 leading-relaxed">{resultUI.message}</p>
+        <p className="whitespace-pre-line text-gray-800 leading-relaxed">
+          {resultUI.message}
+        </p>
 
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:gap-4">
           <a
@@ -304,16 +304,14 @@ export default function DiagnosticoContent() {
             Visita nuestro website
           </a>
 
-          {resultUI.qualifies && (
-            <a
-              href="https://wa.me/50242170962?text=Hola%2C%20vengo%20del%20diagn%C3%B3stico"
-              className="inline-block px-5 py-3 rounded-2xl bg-blue-600 text-white text-center"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Ir a WhatsApp
-            </a>
-          )}
+          <a
+            href="https://wa.me/50242170962?text=Hola%2C%20vengo%20del%20formulario%20de%20software%20de%20gesti%C3%B3n"
+            className="inline-block px-5 py-3 rounded-2xl bg-blue-600 text-white text-center"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ir a WhatsApp
+          </a>
         </div>
       </main>
     );
@@ -326,13 +324,20 @@ export default function DiagnosticoContent() {
     <main className="max-w-3xl mx-auto p-6">
       {/* Barra de progreso */}
       <div className="w-full h-2 bg-gray-200 rounded mb-6">
-        <div className="h-2 bg-blue-500 rounded transition-all" style={{ width: barWidth }} />
+        <div
+          className="h-2 bg-blue-500 rounded transition-all"
+          style={{ width: barWidth }}
+        />
       </div>
 
-      {/* Título y descripción ACTUALIZADOS */}
-      <h1 className="text-2xl font-semibold mb-4">Análisis de Software de Gestión Empresarial</h1>
+      {/* Título y descripción */}
+      <h1 className="text-2xl font-semibold mb-4">
+        Análisis de Software de Gestión Empresarial
+      </h1>
       <p className="text-gray-600 mb-4">
-        Completa el cuestionario para que podamos analizar tu situación actual y determinar qué soluciones se ajustan mejor a las necesidades de tu empresa.
+        Completa el cuestionario para que podamos analizar tu situación actual y
+        entender qué soluciones se ajustan mejor a las necesidades de tu
+        empresa.
       </p>
 
       {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
@@ -354,7 +359,12 @@ export default function DiagnosticoContent() {
                       onChange={() => handleSelect(q.id, o.value)}
                       checked={answers[q.id]?.value === o.value}
                     />
-                    <label htmlFor={`${q.id}_${o.value}`} className="cursor-pointer">{o.label}</label>
+                    <label
+                      htmlFor={`${q.id}_${o.value}`}
+                      className="cursor-pointer"
+                    >
+                      {o.label}
+                    </label>
                   </div>
                 ))}
               </div>
@@ -390,7 +400,7 @@ export default function DiagnosticoContent() {
             <input
               className="w-full border rounded-xl px-3 py-2"
               value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
           <div>
@@ -398,17 +408,17 @@ export default function DiagnosticoContent() {
             <input
               className="w-full border rounded-xl px-3 py-2"
               value={form.company}
-              onChange={e => setForm({ ...form, company: e.target.value })}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
             />
           </div>
 
-          {/* NUEVO: Cargo en la empresa (obligatorio) */}
+          {/* Cargo en la empresa (obligatorio) */}
           <div>
             <label className="block mb-1">Cargo en la empresa</label>
             <input
               className="w-full border rounded-xl px-3 py-2"
               value={form.role}
-              onChange={e => setForm({ ...form, role: e.target.value })}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
               placeholder="Ej.: Gerente de TI"
             />
           </div>
@@ -418,7 +428,7 @@ export default function DiagnosticoContent() {
             <input
               className="w-full border rounded-xl px-3 py-2"
               value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
             {form.email && !isCorporateEmail(form.email) && (
               <p className="text-sm text-red-600 mt-1">
@@ -433,9 +443,18 @@ export default function DiagnosticoContent() {
             <select
               className="w-full border rounded-xl px-3 py-2"
               value={form.country}
-              onChange={e => setForm({ ...form, country: e.target.value as CountryValue })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  country: e.target.value as CountryValue,
+                })
+              }
             >
-              {COUNTRIES.map(c => (<option key={c.value} value={c.value}>{c.label}</option>))}
+              {COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -449,8 +468,11 @@ export default function DiagnosticoContent() {
               <input
                 className="w-full rounded-r border px-3 py-2"
                 value={form.phoneLocal}
-                onChange={e =>
-                  setForm({ ...form, phoneLocal: e.target.value.replace(/[^\d]/g, "") })
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    phoneLocal: e.target.value.replace(/[^\d]/g, ""),
+                  })
                 }
                 placeholder="Ingresa tu número (solo dígitos)"
                 inputMode="numeric"
@@ -458,7 +480,8 @@ export default function DiagnosticoContent() {
               />
             </div>
 
-            {!isPhoneValid(form.phoneLocal, form.country) && form.phoneLocal.length > 0 ? (
+            {!isPhoneValid(form.phoneLocal, form.country) &&
+            form.phoneLocal.length > 0 ? (
               <p className="text-xs text-red-600 mt-1">{phoneRequirementText}</p>
             ) : (
               <p className="text-xs text-gray-500 mt-1">
@@ -468,7 +491,12 @@ export default function DiagnosticoContent() {
           </div>
 
           <div className="flex items-center justify-between gap-3 pt-2">
-            <button onClick={() => setStep(1)} className="px-5 py-3 rounded-2xl border">Atrás</button>
+            <button
+              onClick={() => setStep(1)}
+              className="px-5 py-3 rounded-2xl border"
+            >
+              Atrás
+            </button>
             <button
               onClick={() => setStep(3)}
               disabled={!canContinueData}
@@ -488,20 +516,41 @@ export default function DiagnosticoContent() {
               <input
                 type="checkbox"
                 checked={form.consent}
-                onChange={e => setForm({ ...form, consent: e.target.checked })}
+                onChange={(e) =>
+                  setForm({ ...form, consent: e.target.checked })
+                }
               />
               <span>
-                Autorizo a Grupo Inforum a contactarme respecto a esta evaluación y servicios relacionados. He leído la{" "}
+                Autorizo a Grupo Inforum a contactarme respecto a esta
+                evaluación y servicios relacionados. He leído la{" "}
                 {process.env.NEXT_PUBLIC_PRIVACY_URL ? (
-                  <a href={process.env.NEXT_PUBLIC_PRIVACY_URL} className="text-blue-600 underline" target="_blank" rel="noreferrer">Política de Privacidad</a>
-                ) : (<span className="font-medium">Política de Privacidad</span>)}
+                  <a
+                    href={process.env.NEXT_PUBLIC_PRIVACY_URL}
+                    className="text-blue-600 underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Política de Privacidad
+                  </a>
+                ) : (
+                  <span className="font-medium">Política de Privacidad</span>
+                )}
               </span>
             </label>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <button onClick={() => setStep(2)} className="px-5 py-3 rounded-2xl border">Atrás</button>
-            <button onClick={onSubmit} disabled={loading || !form.consent} className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50">
-              {loading ? "Enviando..." : "Haz clic para conocer tu resultado"}
+            <button
+              onClick={() => setStep(2)}
+              className="px-5 py-3 rounded-2xl border"
+            >
+              Atrás
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={loading || !form.consent}
+              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+            >
+              {loading ? "Enviando..." : "Enviar formulario"}
             </button>
           </div>
         </section>
@@ -509,4 +558,3 @@ export default function DiagnosticoContent() {
     </main>
   );
 }
-
