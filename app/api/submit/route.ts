@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-
+ 
 /* ========= Tipos ========= */
 type Answer = { id: string; value: string | string[]; extraText?: string };
 type Payload = {
