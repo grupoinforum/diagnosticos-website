@@ -94,7 +94,7 @@ const VIDEO_ID = "Eau96xNp3Ds";
 const VIDEO_URL = `https://youtu.be/${VIDEO_ID}`;
 
 function buildEmailBodies(data: Payload, origin: string) {
-  const subject = "Gracias por tu diagnóstico – Grupo Inforum";
+  const subject = "Gracias por contactarnos – Grupo Inforum";
 
 const lead =
   "Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en contacto en menos de 24hrs.";
