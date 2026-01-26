@@ -291,7 +291,7 @@ export default function DiagnosticoContent() {
           {/* Pregunta 1 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-3">
-              1. Industria <span className="text-red-600">*</span>
+              1. 1.	¿En qué industria opera la compañía? <span className="text-red-600">*</span>
             </p>
             <div className="space-y-2">
               {INDUSTRIA_OPTIONS.map((opt) => (
@@ -326,7 +326,7 @@ export default function DiagnosticoContent() {
           {/* Pregunta 2 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-3">
-              2. ¿Qué te interesa? <span className="text-red-600">*</span>
+              2. 2.	¿En qué producto o servicio está interesado? <span className="text-red-600">*</span>
             </p>
             <div className="space-y-2">
               {INTERES_OPTIONS.map((opt) => (
