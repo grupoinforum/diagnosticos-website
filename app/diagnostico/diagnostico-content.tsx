@@ -1,606 +1,487 @@
 // app/diagnostico/diagnostico-content.tsx
 "use client";
-import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
-export const dynamic = "force-dynamic";
+import React, { useMemo, useState } from "react";
 
-/* =========================
-   TIPOS (para evitar 'never')
-   ========================= */
-type QuestionSingleOption = { value: string; label: string; requiresText?: boolean };
+type CountryCode = "GT" | "SV" | "HN" | "PA" | "RD" | "EC";
 
-type QuestionSingle = {
-  id: "industria" | "interes";
-  label: string;
-  type: "single";
-  options: QuestionSingleOption[];
-  required: true;
+type AnswerItem = {
+  id: "industria" | "interes" | "mensaje";
+  value: string;
+  extraText?: string;
 };
 
-type QuestionText = {
-  id: "mensaje";
-  label: string;
-  type: "text";
-  required: false;
+type SubmitPayload = {
+  name: string;
+  company?: string;
+  role?: string;
+  email: string;
+  country?: string;
+  phone?: string;
+  answers?: {
+    utms?: Record<string, string>;
+    items: AnswerItem[];
+  };
 };
 
-type Question = QuestionSingle | QuestionText;
+type Option = { label: string; value: string };
 
-/* =========================
-   PREGUNTAS – SIN PUNTUACIÓN
-   ========================= */
-const QUESTIONS: readonly Question[] = [
-  {
-    id: "industria",
-    label: "¿En qué industria opera la compañía?",
-    type: "single",
-    options: [
-      { value: "produccion", label: "Producción" },
-      { value: "distribucion", label: "Distribución" },
-      { value: "retail", label: "Retail" },
-      { value: "servicios", label: "Servicios" },
-      { value: "inmobiliaria_desarrollo", label: "Inmobiliaria/ Desarrollo" },
-      { value: "otro", label: "Otro: Especificar", requiresText: true },
-    ],
-    required: true,
-  },
-  {
-    id: "interes",
-    label: "¿En qué producto o servicio está interesado?",
-    type: "single",
-    options: [
-      { value: "sapb1", label: "SAP Business One" },
-      { value: "diagnostico_360_sapb1", label: "Diagnóstico 360 de su sistema SAPB1" },
-      { value: "iaas_drp", label: "IaaS / Servicio de DRP" },
-      { value: "software_nomina", label: "Software de Nómina" },
-      { value: "software_gestion_productos", label: "Software de Gestión de Productos" },
-      { value: "integracion_bancaria_sapb1", label: "Integración Bancaria con SAPB1" },
-      { value: "otro", label: "Otro: Especificar", requiresText: true },
-    ],
-    required: true,
-  },
-  {
-    id: "mensaje",
-    label: "Mensaje (opcional)",
-    type: "text",
-    required: false,
-  },
+const INDUSTRIA_OPTIONS: Option[] = [
+  { label: "Retail", value: "Retail" },
+  { label: "Distribución", value: "Distribución" },
+  { label: "Producción", value: "Producción" },
+  { label: "Servicios", value: "Servicios" },
+  { label: "Construcción", value: "Construcción" },
+  { label: "Alimentos y bebidas", value: "Alimentos y bebidas" },
+  { label: "Otro", value: "Otro" },
 ];
 
-/* =========================
-   RESPUESTAS
-   ========================= */
-type Answer = { id: string; value: string | string[]; extraText?: string };
+const INTERES_OPTIONS: Option[] = [
+  { label: "SAP Business One", value: "SAP Business One" },
+  { label: "Infraestructura / Cloud", value: "Infraestructura / Cloud" },
+  { label: "Ciberseguridad", value: "Ciberseguridad" },
+  { label: "Continuidad / Backups", value: "Continuidad / Backups" },
+  { label: "Desarrollo", value: "Desarrollo" },
+  { label: "Otro", value: "Otro" },
+];
 
-/* =========================
-   PAÍSES / PREFIJOS / REGLAS
-   ========================= */
-const COUNTRIES = [
-  { value: "GT", label: "Guatemala" },
-  { value: "SV", label: "El Salvador" },
-  { value: "HN", label: "Honduras" },
-  { value: "PA", label: "Panamá" },
-  { value: "DO", label: "República Dominicana" },
-  { value: "EC", label: "Ecuador" },
-] as const;
-
-type CountryValue = (typeof COUNTRIES)[number]["value"];
-
-const COUNTRY_PREFIX: Record<CountryValue, string> = {
+const COUNTRY_PREFIX: Record<CountryCode, string> = {
   GT: "+502",
   SV: "+503",
   HN: "+504",
   PA: "+507",
-  DO: "+1",
+  RD: "+1 809",
   EC: "+593",
 };
 
-const COUNTRY_PHONE_RULES: Record<
-  CountryValue,
-  { min: number; max?: number; note?: string }
-> = {
-  GT: { min: 8 },
-  SV: { min: 8 },
-  HN: { min: 8 },
-  PA: { min: 8 },
-  DO: { min: 10 },
-  EC: { min: 9, note: "Usa tu número móvil (9 dígitos)" },
-};
-
-const DEFAULT_PREFIX = "+502";
-
-/* =========================
-   EMAIL corporativo simple
-   ========================= */
-const FREE_EMAIL_DOMAINS = [
-  "gmail.com",
-  "hotmail.com",
-  "outlook.com",
-  "yahoo.com",
-  "icloud.com",
-  "proton.me",
-  "aol.com",
-  "live.com",
-  "msn.com",
-];
-
-function isCorporateEmail(email: string) {
-  const domain = email.split("@").pop()?.toLowerCase().trim();
-  if (!domain) return false;
-  return !FREE_EMAIL_DOMAINS.includes(domain);
-}
-
-/* =========================
-   API HELPER
-   ========================= */
-async function submitDiagnostico(payload: any) {
-  const res = await fetch("/api/submit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+function getUTMs(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search);
+  const keys = [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+    "fbclid",
+    "msclkid",
+  ];
+  const utms: Record<string, string> = {};
+  keys.forEach((k) => {
+    const v = params.get(k);
+    if (v) utms[k] = v;
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false)
-    throw new Error(json?.error || `Error ${res.status}`);
-  return json;
+  return utms;
 }
 
-/* =========================
-   COMPONENTE
-   ========================= */
+function isNonEmpty(s?: string) {
+  return typeof s === "string" && s.trim().length > 0;
+}
+
 export default function DiagnosticoContent() {
-  const searchParams = useSearchParams();
+  // ===== Paso (2 pantallas) =====
   const [step, setStep] = useState<1 | 2>(1);
 
-  const [answers, setAnswers] = useState<Record<string, Answer | undefined>>({});
-  const [form, setForm] = useState<{
-    name: string;
-    company: string;
-    role: string;
-    email: string;
-    country: CountryValue;
-    consent: boolean;
-    phoneLocal: string; // parte local SIN prefijo
-  }>({
-    name: "",
-    company: "",
-    role: "",
-    email: "",
-    country: "GT",
-    consent: false,
-    phoneLocal: "",
-  });
+  // ===== Paso 1: preguntas =====
+  const [industria, setIndustria] = useState<string>("");
+  const [industriaOtro, setIndustriaOtro] = useState<string>("");
+
+  const [interes, setInteres] = useState<string>("");
+  const [interesOtro, setInteresOtro] = useState<string>("");
+
+  const [mensaje, setMensaje] = useState<string>("");
+
+  // ===== Paso 2: datos =====
+  const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
+  const [role, setRole] = useState("");
+  const [email, setEmail] = useState("");
+  const [country, setCountry] = useState<CountryCode>("GT");
+  const [phone, setPhone] = useState(COUNTRY_PREFIX.GT);
 
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [resultUI, setResultUI] = useState<null | { title: string; message: string }>(
-    null
-  );
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string>("");
 
-  const utms = useMemo(() => {
-    const keys = [
-      "utm_source",
-      "utm_medium",
-      "utm_campaign",
-      "utm_content",
-      "utm_term",
-    ] as const;
-    const x: Record<string, string> = {};
-    keys.forEach((k) => {
-      const v = searchParams.get(k);
-      if (v) x[k] = v;
-    });
-    return x;
-  }, [searchParams]);
+  // Auto-prefijo al cambiar país (si el usuario no ha editado manualmente demasiado)
+  const countryPrefix = useMemo(() => COUNTRY_PREFIX[country], [country]);
+  React.useEffect(() => {
+    // Si el teléfono está vacío o todavía coincide con algún prefijo, lo reseteamos al nuevo prefijo
+    const allPrefixes = Object.values(COUNTRY_PREFIX);
+    const normalized = phone.trim();
+    if (!normalized || allPrefixes.includes(normalized)) {
+      setPhone(countryPrefix);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countryPrefix]);
 
-  // ✅ 2 pasos visibles
-  const progressPct = useMemo(() => (step / 2) * 100, [step]);
-  const barWidth = progressPct + "%";
+  // ===== Validaciones =====
+  const step1Valid = useMemo(() => {
+    // 1 obligatoria
+    if (!isNonEmpty(industria)) return false;
+    // Si industria = Otro -> obligatorio texto
+    if (industria === "Otro" && !isNonEmpty(industriaOtro)) return false;
 
-  const handleSelect = (qid: string, optionValue: string) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [qid]: { id: qid, value: optionValue },
-    }));
-  };
+    // 2 obligatoria
+    if (!isNonEmpty(interes)) return false;
+    // Si interes = Otro -> obligatorio texto
+    if (interes === "Otro" && !isNonEmpty(interesOtro)) return false;
 
-  const handleExtraText = (qid: string, text: string) => {
-    const existing = answers[qid];
-    if (!existing) return;
-    setAnswers((prev) => ({
-      ...prev,
-      [qid]: { ...existing, extraText: text },
-    }));
-  };
+    // 3 opcional (mensaje)
+    return true;
+  }, [industria, industriaOtro, interes, interesOtro]);
 
-  const handleTextAnswer = (qid: string, text: string) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [qid]: { id: qid, value: text },
-    }));
-  };
+  const step2Valid = useMemo(() => {
+    if (!isNonEmpty(name)) return false;
+    if (!isNonEmpty(email)) return false;
+    return true;
+  }, [name, email]);
 
-  const shouldShowExtraInput = (qid: string) => {
-    const q = QUESTIONS.find((qq) => qq.id === qid);
-    if (!q || q.type !== "single") return false;
+  function goNext() {
+    setError("");
+    if (!step1Valid) {
+      setError("Por favor completa las preguntas obligatorias.");
+      return;
+    }
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
-    const selected = answers[qid]?.value;
-    const selectedStr = typeof selected === "string" ? selected : "";
-    const selectedOpt = q.options.find((o) => o.value === selectedStr);
-    return !!selectedOpt?.requiresText;
-  };
+  function goBack() {
+    setError("");
+    setStep(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
-  // ✅ solo Q1 y Q2 obligatorias (Q3 opcional)
-  const canContinueQuestions = useMemo(() => {
-    return QUESTIONS.every((q) => {
-      if (!q.required) return true;
-      const a = answers[q.id];
-      if (!a) return false;
-
-      if (q.type === "single") {
-        return typeof a.value === "string" && a.value.trim().length > 0;
-      }
-      // q.type === "text" no es required en este formulario
-      return true;
-    });
-  }, [answers]);
-
-  /* =========================
-     TELÉFONO con prefijo y reglas
-     ========================= */
-  const selectedPrefix = useMemo(
-    () => COUNTRY_PREFIX[form.country] ?? DEFAULT_PREFIX,
-    [form.country]
-  );
-
-  const phoneFull = useMemo(() => {
-    const local = (form.phoneLocal || "").replace(/[^\d]/g, "");
-    return `${selectedPrefix}${local ? " " + local : ""}`;
-  }, [form.phoneLocal, selectedPrefix]);
-
-  const isPhoneValid = (local: string, country: CountryValue) => {
-    const digits = (local || "").replace(/[^\d]/g, "");
-    const rule = COUNTRY_PHONE_RULES[country];
-    if (!rule) return digits.length >= 8; // fallback
-    const meetsMin = digits.length >= rule.min;
-    const meetsMax = rule.max ? digits.length <= rule.max : true;
-    return meetsMin && meetsMax;
-  };
-
-  const phoneRequirementText = (() => {
-    const rule = COUNTRY_PHONE_RULES[form.country];
-    if (!rule) return "Ingresa al menos 8 dígitos del número local.";
-    const minTxt = `${rule.min} dígitos`;
-    const maxTxt = rule.max ? ` (máx. ${rule.max})` : "";
-    const note = rule.note ? ` · ${rule.note}` : "";
-    return `Ingresa ${minTxt}${maxTxt} del número local${note}.`;
-  })();
-
-  const canContinueData = useMemo(
-    () =>
-      form.name.trim().length > 1 &&
-      form.company.trim().length > 1 &&
-      form.role.trim().length > 1 &&
-      /.+@.+\..+/.test(form.email) &&
-      isCorporateEmail(form.email) &&
-      isPhoneValid(form.phoneLocal, form.country),
-    [form]
-  );
-
-  const onSubmit = async () => {
-    setErrorMsg(null);
-
-    if (!form.consent) {
-      setErrorMsg("Debes aceptar el consentimiento para continuar.");
+  async function submitAll() {
+    setError("");
+    if (!step1Valid) {
+      setError("Por favor completa las preguntas obligatorias.");
+      setStep(1);
+      return;
+    }
+    if (!step2Valid) {
+      setError("Por favor completa tu nombre y correo.");
       return;
     }
 
+    const items: AnswerItem[] = [
+      {
+        id: "industria",
+        value: industria,
+        ...(industria === "Otro" ? { extraText: industriaOtro.trim() } : {}),
+      },
+      {
+        id: "interes",
+        value: interes,
+        ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
+      },
+      {
+        id: "mensaje",
+        value: mensaje.trim(),
+      },
+    ];
+
+    const payload: SubmitPayload = {
+      name: name.trim(),
+      company: company.trim() || undefined,
+      role: role.trim() || undefined,
+      email: email.trim(),
+      country,
+      phone: phone.trim() || undefined,
+      answers: { utms: getUTMs(), items },
+    };
+
     setLoading(true);
-
     try {
-      // ✅ incluir mensaje solo si tiene contenido
-      const finalAnswers = (Object.values(answers).filter(Boolean) as Answer[]).filter(
-        (a) => !(a.id === "mensaje" && typeof a.value === "string" && a.value.trim() === "")
-      );
-
-      const countryLabel =
-        COUNTRIES.find((c) => c.value === form.country)?.label || form.country;
-
-      await submitDiagnostico({
-        name: form.name,
-        company: form.company,
-        role: form.role,
-        email: form.email,
-        country: countryLabel,
-        phone: phoneFull,
-        answers: { utms, items: finalAnswers },
+      const res = await fetch("/api/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      setResultUI({
-        title: "Formulario enviado",
-        message:
-          "Gracias por compartirnos esta información. Nuestro equipo revisará tus respuestas y te contactará para acompañarte en los siguientes pasos.",
-      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out?.ok) {
+        throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
+      }
+
+      setDone(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e: any) {
-      setErrorMsg(e?.message || "No se logró enviar. Intenta de nuevo.");
+      setError(e?.message || "Ocurrió un error.");
     } finally {
       setLoading(false);
     }
+  }
+
+  // ===== UI helpers =====
+  const Progress = ({ current }: { current: 1 | 2 }) => {
+    const is1 = current === 1;
+    const is2 = current === 2;
+    return (
+      <div className="w-full mb-6">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div
+              className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                is1 ? "bg-[#0B4A6F] text-white" : "bg-gray-200 text-gray-700"
+              }`}
+            >
+              1
+            </div>
+            <div className={`text-sm ${is1 ? "font-semibold" : "text-gray-600"}`}>
+              Información
+            </div>
+          </div>
+          <div className="flex-1 h-[2px] bg-gray-200 rounded" />
+          <div className="flex items-center gap-2">
+            <div
+              className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                is2 ? "bg-[#0B4A6F] text-white" : "bg-gray-200 text-gray-700"
+              }`}
+            >
+              2
+            </div>
+            <div className={`text-sm ${is2 ? "font-semibold" : "text-gray-600"}`}>
+              Datos
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  /* =========================
-     RESULTADO
-     ========================= */
-  if (resultUI) {
+  if (done) {
     return (
-      <main className="max-w-3xl mx-auto p-6">
-        <div className="w-full h-2 bg-gray-200 rounded mb-6">
-          <div className="h-2 bg-blue-500 rounded" style={{ width: "100%" }} />
-        </div>
-
-        <h1 className="text-2xl font-semibold mb-3">{resultUI.title}</h1>
-        <p className="whitespace-pre-line text-gray-800 leading-relaxed">
-          {resultUI.message}
+      <div className="w-full max-w-2xl mx-auto px-4 py-10">
+        <h1 className="text-2xl font-semibold mb-3">¡Listo!</h1>
+        <p className="text-gray-700 mb-6">
+          Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en
+          contacto en menos de 24hrs.
         </p>
 
-        {/* ✅ solo website */}
-        <div className="mt-4 flex flex-col gap-3 md:flex-row md:gap-4">
-          <a
-            href="https://www.grupoinforum.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-5 py-3 rounded-2xl bg-[#082a49] text-white text-center"
-          >
-            Visita nuestro website
-          </a>
-        </div>
-      </main>
+        <a
+          href="https://www.grupoinforum.com"
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center justify-center rounded-[10px] px-5 py-3 font-semibold text-white"
+          style={{ backgroundColor: "#082a49" }}
+        >
+          Visita nuestro website
+        </a>
+      </div>
     );
   }
 
-  /* =========================
-     UI: Stepper (2 pasos)
-     ========================= */
-  const Stepper = () => (
-    <div className="mb-4">
-      <div className="flex items-center justify-between text-sm">
-        <div className={`font-medium ${step === 1 ? "text-blue-700" : "text-gray-500"}`}>
-          1. Información
-        </div>
-        <div className={`font-medium ${step === 2 ? "text-blue-700" : "text-gray-500"}`}>
-          2. Datos
-        </div>
-      </div>
-
-      <div className="w-full h-2 bg-gray-200 rounded mt-2">
-        <div
-          className="h-2 bg-blue-500 rounded transition-all"
-          style={{ width: barWidth }}
-        />
-      </div>
-    </div>
-  );
-
-  /* =========================
-     FORMULARIO
-     ========================= */
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <Stepper />
+    <div className="w-full max-w-2xl mx-auto px-4 py-10">
+      <Progress current={step} />
 
-      <h1 className="text-2xl font-semibold mb-4">
-        Análisis de Software de Gestión Empresarial
-      </h1>
-      <p className="text-gray-600 mb-4">
-        Completa el cuestionario para que podamos analizar tu situación actual y
-        entender qué soluciones se ajustan mejor a las necesidades de tu
-        empresa.
-      </p>
+      {error ? (
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
-      {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
+      {step === 1 ? (
+        <div className="space-y-7">
+          <h1 className="text-2xl font-semibold">Diagnóstico</h1>
 
-      {/* Paso 1: Preguntas */}
-      {step === 1 && (
-        <section className="space-y-6">
-          {QUESTIONS.map((q) => {
-            if (q.type === "text") {
-              const v = answers[q.id]?.value;
-              const str = typeof v === "string" ? v : "";
-              return (
-                <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
-                  <label className="font-medium block mb-3">{q.label}</label>
-                  <textarea
-                    className="w-full border rounded-xl px-3 py-2 min-h-[110px]"
-                    placeholder="Comparte más detalles si lo deseas"
-                    value={str}
-                    onChange={(e) => handleTextAnswer(q.id, e.target.value)}
-                  />
-                </div>
-              );
-            }
-
-            // single
-            return (
-              <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
-                <label className="font-medium block mb-3">{q.label}</label>
-
-                <div className="space-y-2">
-                  {q.options.map((o) => (
-                    <div key={o.value} className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        id={`${q.id}_${o.value}`}
-                        name={q.id}
-                        className="cursor-pointer"
-                        onChange={() => handleSelect(q.id, o.value)}
-                        checked={answers[q.id]?.value === o.value}
-                      />
-                      <label htmlFor={`${q.id}_${o.value}`} className="cursor-pointer">
-                        {o.label}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-
-                {shouldShowExtraInput(q.id) && (
+          {/* Pregunta 1 */}
+          <div className="rounded-xl border border-gray-200 p-5">
+            <p className="font-semibold mb-3">
+              1. Industria <span className="text-red-600">*</span>
+            </p>
+            <div className="space-y-2">
+              {INDUSTRIA_OPTIONS.map((opt) => (
+                <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="text"
-                    placeholder="Especifica aquí"
-                    className="mt-3 w-full border rounded-xl px-3 py-2"
-                    value={answers[q.id]?.extraText ?? ""}
-                    onChange={(e) => handleExtraText(q.id, e.target.value)}
+                    type="radio"
+                    name="industria"
+                    value={opt.value}
+                    checked={industria === opt.value}
+                    onChange={(e) => setIndustria(e.target.value)}
                   />
-                )}
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+
+            {industria === "Otro" ? (
+              <div className="mt-4">
+                <label className="block text-sm font-semibold mb-2">
+                  Especifica cuál <span className="text-red-600">*</span>
+                </label>
+                <input
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  value={industriaOtro}
+                  onChange={(e) => setIndustriaOtro(e.target.value)}
+                  placeholder="Escribe tu industria"
+                />
               </div>
-            );
-          })}
+            ) : null}
+          </div>
+
+          {/* Pregunta 2 */}
+          <div className="rounded-xl border border-gray-200 p-5">
+            <p className="font-semibold mb-3">
+              2. ¿Qué te interesa? <span className="text-red-600">*</span>
+            </p>
+            <div className="space-y-2">
+              {INTERES_OPTIONS.map((opt) => (
+                <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="interes"
+                    value={opt.value}
+                    checked={interes === opt.value}
+                    onChange={(e) => setInteres(e.target.value)}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+
+            {interes === "Otro" ? (
+              <div className="mt-4">
+                <label className="block text-sm font-semibold mb-2">
+                  Especifica cuál <span className="text-red-600">*</span>
+                </label>
+                <input
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  value={interesOtro}
+                  onChange={(e) => setInteresOtro(e.target.value)}
+                  placeholder="Escribe tu interés"
+                />
+              </div>
+            ) : null}
+          </div>
+
+          {/* Pregunta 3 */}
+          <div className="rounded-xl border border-gray-200 p-5">
+            <p className="font-semibold mb-2">
+              3. Mensaje <span className="text-gray-500 font-normal">(opcional)</span>
+            </p>
+            <textarea
+              className="w-full min-h-[110px] rounded-lg border border-gray-300 px-3 py-2"
+              value={mensaje}
+              onChange={(e) => setMensaje(e.target.value)}
+              placeholder="Cuéntanos más detalles (si deseas)"
+            />
+          </div>
 
           <div className="flex justify-end">
             <button
-              onClick={() => setStep(2)}
-              disabled={!canContinueQuestions}
-              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+              type="button"
+              onClick={goNext}
+              className="rounded-[10px] px-6 py-3 font-semibold text-white"
+              style={{ backgroundColor: "#0B4A6F" }}
             >
-              Siguiente
+              Continuar
             </button>
           </div>
-        </section>
-      )}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-semibold">Tus datos</h2>
 
-      {/* Paso 2: Datos + consentimiento + submit */}
-      {step === 2 && (
-        <section className="space-y-4">
-          <div>
-            <label className="block mb-1">Nombre</label>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-1">Empresa</label>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.company}
-              onChange={(e) => setForm({ ...form, company: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-1">Cargo en la empresa</label>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
-              placeholder="Ej.: Gerente de TI"
-            />
-          </div>
-
-          <div>
-            <label className="block mb-1">Correo empresarial</label>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-            {form.email && !isCorporateEmail(form.email) && (
-              <p className="text-sm text-red-600 mt-1">
-                Usa un correo corporativo (no gmail/hotmail/outlook/yahoo, etc.).
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block mb-1">País</label>
-            <select
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.country}
-              onChange={(e) =>
-                setForm({ ...form, country: e.target.value as CountryValue })
-              }
-            >
-              {COUNTRIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block mb-1">Teléfono</label>
-            <div className="flex">
-              <span className="inline-flex items-center rounded-l border border-r-0 bg-gray-50 px-3 text-sm">
-                {selectedPrefix}
-              </span>
+          <div className="rounded-xl border border-gray-200 p-5 space-y-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Nombre <span className="text-red-600">*</span>
+              </label>
               <input
-                className="w-full rounded-r border px-3 py-2"
-                value={form.phoneLocal}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    phoneLocal: e.target.value.replace(/[^\d]/g, ""),
-                  })
-                }
-                placeholder="Ingresa tu número (solo dígitos)"
-                inputMode="numeric"
-                pattern="\d*"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Tu nombre"
               />
             </div>
 
-            {!isPhoneValid(form.phoneLocal, form.country) && form.phoneLocal.length > 0 ? (
-              <p className="text-xs text-red-600 mt-1">{phoneRequirementText}</p>
-            ) : (
-              <p className="text-xs text-gray-500 mt-1">
-                Se enviará como: <strong>{phoneFull || selectedPrefix}</strong>
-              </p>
-            )}
-          </div>
-
-          <div className="p-4 rounded-2xl border border-gray-200">
-            <label className="flex items-start gap-3">
+            <div>
+              <label className="block text-sm font-semibold mb-2">Empresa</label>
               <input
-                type="checkbox"
-                checked={form.consent}
-                onChange={(e) => setForm({ ...form, consent: e.target.checked })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Nombre de empresa"
               />
-              <span>
-                Autorizo a Grupo Inforum a contactarme respecto a esta evaluación y servicios
-                relacionados. He leído la{" "}
-                {process.env.NEXT_PUBLIC_PRIVACY_URL ? (
-                  <a
-                    href={process.env.NEXT_PUBLIC_PRIVACY_URL}
-                    className="text-blue-600 underline"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Política de Privacidad
-                  </a>
-                ) : (
-                  <span className="font-medium">Política de Privacidad</span>
-                )}
-              </span>
-            </label>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Cargo</label>
+              <input
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="Tu cargo"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Correo <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="email"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="tu@empresa.com"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2">País</label>
+                <select
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value as CountryCode)}
+                >
+                  <option value="GT">Guatemala</option>
+                  <option value="SV">El Salvador</option>
+                  <option value="HN">Honduras</option>
+                  <option value="PA">Panamá</option>
+                  <option value="RD">Rep. Dominicana</option>
+                  <option value="EC">Ecuador</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2">Teléfono</label>
+                <input
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder={countryPrefix}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-2">
-            <button onClick={() => setStep(1)} className="px-5 py-3 rounded-2xl border">
-              Atrás
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              className="rounded-[10px] px-6 py-3 font-semibold border border-gray-300"
+            >
+              Regresar
             </button>
 
             <button
-              onClick={onSubmit}
-              disabled={loading || !canContinueData || !form.consent}
-              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
+              type="button"
+              onClick={submitAll}
+              disabled={loading}
+              className="rounded-[10px] px-6 py-3 font-semibold text-white disabled:opacity-60"
+              style={{ backgroundColor: "#0B4A6F" }}
             >
-              {loading ? "Enviando..." : "Enviar formulario"}
+              {loading ? "Enviando..." : "Enviar"}
             </button>
           </div>
-        </section>
+        </div>
       )}
-    </main>
+    </div>
   );
 }
