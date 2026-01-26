@@ -12,42 +12,35 @@ const QUESTIONS = [
   {
     id: "industria",
     label: "¿En qué industria opera la compañía?",
-    type: "single" as const,
+    type: "multi" as const, // ✅ múltiple
     options: [
       { value: "produccion", label: "Producción" },
       { value: "distribucion", label: "Distribución" },
       { value: "retail", label: "Retail" },
       { value: "servicios", label: "Servicios" },
-      { value: "inmobiliaria_desarrollo", label: "Inmobiliaria y Desarrollo" },
-      { value: "restaurante", label: "Restaurante" },
-      { value: "otro", label: "Otro (especificar)", requiresText: true },
+      { value: "inmobiliaria_desarrollo", label: "Inmobiliaria/ Desarrollo" },
+      { value: "otro", label: "Otro: Especificar", requiresText: true },
     ],
     required: true,
   },
   {
-    id: "erp",
-    label: "¿Qué sistema empresarial (ERP) utiliza actualmente su empresa?",
+    id: "interes",
+    label: "¿En qué producto o servicio está interesado?",
     type: "single" as const,
     options: [
       { value: "sapb1", label: "SAP Business One" },
-      { value: "sistema_propio", label: "Sistema Propio" },
-      { value: "erp_otro", label: "Otro (especificar)", requiresText: true },
-    ],
-    required: true,
-  },
-  {
-    id: "busca",
-    label: "¿Estás buscando un sistema o un servicio en particular?",
-    type: "single" as const,
-    options: [
-      { value: "sistema", label: "Sistema (especificar)", requiresText: true },
-      { value: "servicio", label: "Servicio (especificar)", requiresText: true },
+      { value: "diagnostico_360_sapb1", label: "Diagnóstico 360 de su sistema SAPB1" },
+      { value: "iaas_drp", label: "IaaS / Servicio de DRP" },
+      { value: "software_nomina", label: "Software de Nómina" },
+      { value: "software_gestion_productos", label: "Software de Gestión de Productos" },
+      { value: "integracion_bancaria_sapb1", label: "Integración Bancaria con SAPB1" },
+      { value: "otro", label: "Otro: Especificar", requiresText: true },
     ],
     required: true,
   },
 ] as const;
 
-type Answer = { id: string; value: string; extraText?: string };
+type Answer = { id: string; value: string | string[]; extraText?: string };
 
 /* =========================
    PAÍSES / PREFIJOS / REGLAS
@@ -168,16 +161,39 @@ export default function DiagnosticoContent() {
     return x;
   }, [searchParams]);
 
+  // Mantengo 3 pasos (preguntas / datos / consentimiento)
   const progressPct = useMemo(() => (step / 3) * 100, [step]);
   const barWidth = progressPct + "%";
 
   const handleSelect = (qid: string, optionValue: string) => {
-    const q = QUESTIONS.find((q) => q.id === qid)!;
-    const opt = q.options.find((o) => o.value === optionValue)!;
-    setAnswers((prev) => ({
-      ...prev,
-      [qid]: { id: qid, value: optionValue },
-    }));
+    const q = QUESTIONS.find((qq) => qq.id === qid)!;
+
+    setAnswers((prev) => {
+      const existing = prev[qid];
+
+      // ✅ Multi: toggle
+      if (q.type === "multi") {
+        const current = Array.isArray(existing?.value) ? existing!.value : [];
+        const next = current.includes(optionValue)
+          ? current.filter((v) => v !== optionValue)
+          : [...current, optionValue];
+
+        // Si deselecciona "otro", limpiamos extraText
+        const nextExtraText =
+          next.includes("otro") ? existing?.extraText : undefined;
+
+        return {
+          ...prev,
+          [qid]: { id: qid, value: next, extraText: nextExtraText },
+        };
+      }
+
+      // ✅ Single
+      return {
+        ...prev,
+        [qid]: { id: qid, value: optionValue },
+      };
+    });
   };
 
   const handleExtraText = (qid: string, text: string) => {
@@ -192,15 +208,34 @@ export default function DiagnosticoContent() {
   const shouldShowExtraInput = (qid: string) => {
     const q = QUESTIONS.find((qq) => qq.id === qid);
     if (!q) return false;
-    const selected = answers[qid]?.value;
+
+    const ans = answers[qid]?.value;
+
+    // Multi
+    if (q.type === "multi") {
+      const arr = Array.isArray(ans) ? ans : [];
+      if (!arr.length) return false;
+      return arr.includes("otro");
+    }
+
+    // Single
+    const selected = typeof ans === "string" ? ans : "";
     const selectedOpt = q.options.find((o) => o.value === selected) as any;
     return !!selectedOpt?.requiresText;
   };
 
-  const canContinueQuestions = useMemo(
-    () => QUESTIONS.every((q) => !!answers[q.id]),
-    [answers]
-  );
+  const canContinueQuestions = useMemo(() => {
+    return QUESTIONS.every((q) => {
+      const a = answers[q.id];
+      if (!q.required) return true;
+      if (!a) return false;
+
+      if (q.type === "multi") {
+        return Array.isArray(a.value) && a.value.length > 0;
+      }
+      return typeof a.value === "string" && a.value.trim().length > 0;
+    });
+  }, [answers]);
 
   /* =========================
      TELÉFONO con prefijo y reglas
@@ -348,25 +383,34 @@ export default function DiagnosticoContent() {
           {QUESTIONS.map((q) => (
             <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
               <label className="font-medium block mb-3">{q.label}</label>
+
               <div className="space-y-2">
-                {q.options.map((o) => (
-                  <div key={o.value} className="flex items-center gap-3">
-                    <input
-                      type="radio"
-                      id={`${q.id}_${o.value}`}
-                      name={q.id}
-                      className="cursor-pointer"
-                      onChange={() => handleSelect(q.id, o.value)}
-                      checked={answers[q.id]?.value === o.value}
-                    />
-                    <label
-                      htmlFor={`${q.id}_${o.value}`}
-                      className="cursor-pointer"
-                    >
-                      {o.label}
-                    </label>
-                  </div>
-                ))}
+                {q.options.map((o) => {
+                  const ans = answers[q.id]?.value;
+                  const isChecked =
+                    q.type === "multi"
+                      ? Array.isArray(ans) && ans.includes(o.value)
+                      : ans === o.value;
+
+                  return (
+                    <div key={o.value} className="flex items-center gap-3">
+                      <input
+                        type={q.type === "multi" ? "checkbox" : "radio"}
+                        id={`${q.id}_${o.value}`}
+                        name={q.id}
+                        className="cursor-pointer"
+                        onChange={() => handleSelect(q.id, o.value)}
+                        checked={!!isChecked}
+                      />
+                      <label
+                        htmlFor={`${q.id}_${o.value}`}
+                        className="cursor-pointer"
+                      >
+                        {o.label}
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Campo libre solo si la opción seleccionada lo requiere */}
@@ -375,11 +419,13 @@ export default function DiagnosticoContent() {
                   type="text"
                   placeholder="Especifica aquí"
                   className="mt-3 w-full border rounded-xl px-3 py-2"
+                  value={answers[q.id]?.extraText ?? ""}
                   onChange={(e) => handleExtraText(q.id, e.target.value)}
                 />
               )}
             </div>
           ))}
+
           <div className="flex justify-end">
             <button
               onClick={() => setStep(2)}
