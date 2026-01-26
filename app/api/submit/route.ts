@@ -82,11 +82,7 @@ function absoluteOriginFromReq(req: Request) {
   const proto = (req.headers.get("x-forwarded-proto") || "https")
     .split(",")[0]
     .trim();
-  const host = (
-    req.headers.get("x-forwarded-host") ||
-    req.headers.get("host") ||
-    ""
-  )
+  const host = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "")
     .split(",")[0]
     .trim();
   if (!host) return "https://inforum-diagnostico.vercel.app";
@@ -170,9 +166,7 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
   let personId: number | null = null;
   try {
     const search = await pd(
-      `/persons/search?term=${encodeURIComponent(
-        email
-      )}&fields=email&exact_match=true`
+      `/persons/search?term=${encodeURIComponent(email)}&fields=email&exact_match=true`
     );
     const item = (search as any)?.data?.items?.[0];
     if (item?.item?.id) personId = item.item.id;
@@ -180,7 +174,6 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
     console.error("[persons/search]", (e as Error).message);
   }
 
-  // Helper: construir cuerpo con campos opcionales
   const buildBody = () => {
     const body: any = { name: data.name };
     if (phone) body.phone = [{ value: phone, primary: true, label: "work" }];
@@ -188,7 +181,6 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
     return body;
   };
 
-  // 2) Si existe → actualizar
   if (personId) {
     try {
       await pd(`/persons/${personId}`, {
@@ -202,16 +194,13 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
     return personId;
   }
 
-  // 3) Si no existe → crear
   try {
     const createBody: any = {
       name: data.name,
       email: [{ value: email, primary: true, label: "work" }],
     };
-    if (phone)
-      createBody.phone = [{ value: phone, primary: true, label: "work" }];
-    if (PD_PERSON_ROLE_FIELD && role)
-      createBody[PD_PERSON_ROLE_FIELD] = role;
+    if (phone) createBody.phone = [{ value: phone, primary: true, label: "work" }];
+    if (PD_PERSON_ROLE_FIELD && role) createBody[PD_PERSON_ROLE_FIELD] = role;
 
     const created = await pd(`/persons`, {
       method: "POST",
@@ -230,16 +219,20 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
   try {
     const items: Answer[] | undefined = answers?.items;
     if (!Array.isArray(items) || !items.length) return "";
+
     const mapLabel: Record<string, string> = {
       industria: "Industria",
       interes: "Interés",
+      mensaje: "Mensaje",
     };
+
     const lines = items.map((a) => {
       const k = mapLabel[a.id] || a.id;
       const v = Array.isArray(a.value) ? a.value.join(", ") : a.value;
       const extra = a.extraText ? ` (${a.extraText})` : "";
       return `- ${k}: ${v}${extra}`;
     });
+
     return lines.join("\n");
   } catch {
     return "";
@@ -261,17 +254,14 @@ export async function POST(req: Request) {
     const pipeline_id = PIPELINES[cc];
     const stage_id = STAGE_CAPA1[cc];
 
-    // 1) Persona (buscar o crear) con phone + role
     const personId = await upsertPersonWithPhoneAndRole(data);
 
-    // 2) Organización (opcional)
+    // Organización (opcional)
     let orgId: number | undefined;
     if (data.company) {
       try {
         const s = await pd(
-          `/organizations/search?term=${encodeURIComponent(
-            data.company
-          )}&exact_match=true`
+          `/organizations/search?term=${encodeURIComponent(data.company)}&exact_match=true`
         );
         const it = (s as any)?.data?.items?.[0];
         orgId = it?.item?.id;
@@ -290,7 +280,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3) Deal
+    // Deal
     console.log(
       `[Deals] Creando deal → cc=${cc} pipeline=${pipeline_id} stage=${stage_id}`
     );
@@ -308,11 +298,9 @@ export async function POST(req: Request) {
       }),
     });
     const dealId = (deal as any)?.data?.id;
-    console.log(
-      `🟢 Deal #${dealId} creado en pipeline ${pipeline_id}, stage ${stage_id}`
-    );
+    console.log(`🟢 Deal #${dealId} creado en pipeline ${pipeline_id}, stage ${stage_id}`);
 
-    // 4) Nota con contexto (incluye teléfono, cargo y resumen de respuestas)
+    // Nota con contexto
     try {
       const answersBrief = briefAnswersSummary(data.answers);
 
@@ -343,7 +331,7 @@ export async function POST(req: Request) {
       console.error("[notes POST]", (e as Error).message);
     }
 
-    // 5) Email (no bloqueante)
+    // Email (no bloqueante)
     try {
       await sendEmailConfirmation(data, req);
     } catch (e) {
