@@ -12,7 +12,7 @@ const QUESTIONS = [
   {
     id: "industria",
     label: "¿En qué industria opera la compañía?",
-    type: "multi" as const, // ✅ múltiple
+    type: "single" as const, // ✅ solo 1
     options: [
       { value: "produccion", label: "Producción" },
       { value: "distribucion", label: "Distribución" },
@@ -37,6 +37,12 @@ const QUESTIONS = [
       { value: "otro", label: "Otro: Especificar", requiresText: true },
     ],
     required: true,
+  },
+  {
+    id: "mensaje",
+    label: "Mensaje (opcional)",
+    type: "text" as const, // ✅ textarea
+    required: false,
   },
 ] as const;
 
@@ -120,7 +126,8 @@ async function submitDiagnostico(payload: any) {
    ========================= */
 export default function DiagnosticoContent() {
   const searchParams = useSearchParams();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<1 | 2>(1);
+
   const [answers, setAnswers] = useState<Record<string, Answer | undefined>>({});
   const [form, setForm] = useState<{
     name: string;
@@ -139,6 +146,7 @@ export default function DiagnosticoContent() {
     consent: false,
     phoneLocal: "",
   });
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resultUI, setResultUI] = useState<null | { title: string; message: string }>(
@@ -161,39 +169,20 @@ export default function DiagnosticoContent() {
     return x;
   }, [searchParams]);
 
-  // Mantengo 3 pasos (preguntas / datos / consentimiento)
-  const progressPct = useMemo(() => (step / 3) * 100, [step]);
+  // ✅ 2 pasos visibles
+  const progressPct = useMemo(() => (step / 2) * 100, [step]);
   const barWidth = progressPct + "%";
 
   const handleSelect = (qid: string, optionValue: string) => {
     const q = QUESTIONS.find((qq) => qq.id === qid)!;
 
-    setAnswers((prev) => {
-      const existing = prev[qid];
+    // Solo single aquí
+    if (q.type !== "single") return;
 
-      // ✅ Multi: toggle
-      if (q.type === "multi") {
-        const current = Array.isArray(existing?.value) ? existing!.value : [];
-        const next = current.includes(optionValue)
-          ? current.filter((v) => v !== optionValue)
-          : [...current, optionValue];
-
-        // Si deselecciona "otro", limpiamos extraText
-        const nextExtraText =
-          next.includes("otro") ? existing?.extraText : undefined;
-
-        return {
-          ...prev,
-          [qid]: { id: qid, value: next, extraText: nextExtraText },
-        };
-      }
-
-      // ✅ Single
-      return {
-        ...prev,
-        [qid]: { id: qid, value: optionValue },
-      };
-    });
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { id: qid, value: optionValue },
+    }));
   };
 
   const handleExtraText = (qid: string, text: string) => {
@@ -205,35 +194,37 @@ export default function DiagnosticoContent() {
     }));
   };
 
+  const handleTextAnswer = (qid: string, text: string) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [qid]: { id: qid, value: text },
+    }));
+  };
+
   const shouldShowExtraInput = (qid: string) => {
     const q = QUESTIONS.find((qq) => qq.id === qid);
-    if (!q) return false;
+    if (!q || q.type !== "single") return false;
 
-    const ans = answers[qid]?.value;
-
-    // Multi
-    if (q.type === "multi") {
-      const arr = Array.isArray(ans) ? ans : [];
-      if (!arr.length) return false;
-      return arr.includes("otro");
-    }
-
-    // Single
-    const selected = typeof ans === "string" ? ans : "";
-    const selectedOpt = q.options.find((o) => o.value === selected) as any;
+    const selected = answers[qid]?.value;
+    const selectedStr = typeof selected === "string" ? selected : "";
+    const selectedOpt = (q.options || []).find((o: any) => o.value === selectedStr) as any;
     return !!selectedOpt?.requiresText;
   };
 
+  // ✅ solo Q1 y Q2 obligatorias
   const canContinueQuestions = useMemo(() => {
     return QUESTIONS.every((q) => {
-      const a = answers[q.id];
       if (!q.required) return true;
+      const a = answers[q.id];
       if (!a) return false;
 
-      if (q.type === "multi") {
-        return Array.isArray(a.value) && a.value.length > 0;
+      if (q.type === "single") {
+        return typeof a.value === "string" && a.value.trim().length > 0;
       }
-      return typeof a.value === "string" && a.value.trim().length > 0;
+      if (q.type === "text") {
+        return typeof a.value === "string" && a.value.trim().length > 0;
+      }
+      return false;
     });
   }, [answers]);
 
@@ -281,14 +272,20 @@ export default function DiagnosticoContent() {
 
   const onSubmit = async () => {
     setErrorMsg(null);
+
     if (!form.consent) {
       setErrorMsg("Debes aceptar el consentimiento para continuar.");
       return;
     }
+
     setLoading(true);
 
     try {
-      const finalAnswers = Object.values(answers).filter(Boolean) as Answer[];
+      // ✅ incluir mensaje solo si tiene contenido
+      const finalAnswers = (Object.values(answers).filter(Boolean) as Answer[]).filter(
+        (a) => !(a.id === "mensaje" && typeof a.value === "string" && a.value.trim() === "")
+      );
+
       const countryLabel =
         COUNTRIES.find((c) => c.value === form.country)?.label || form.country;
 
@@ -320,6 +317,7 @@ export default function DiagnosticoContent() {
   if (resultUI) {
     return (
       <main className="max-w-3xl mx-auto p-6">
+        {/* Barra de progreso final */}
         <div className="w-full h-2 bg-gray-200 rounded mb-6">
           <div className="h-2 bg-blue-500 rounded" style={{ width: "100%" }} />
         </div>
@@ -329,6 +327,7 @@ export default function DiagnosticoContent() {
           {resultUI.message}
         </p>
 
+        {/* ✅ solo website */}
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:gap-4">
           <a
             href="https://www.grupoinforum.com"
@@ -338,32 +337,40 @@ export default function DiagnosticoContent() {
           >
             Visita nuestro website
           </a>
-
-          <a
-            href="https://wa.me/50242170962?text=Hola%2C%20vengo%20del%20formulario%20de%20software%20de%20gesti%C3%B3n"
-            className="inline-block px-5 py-3 rounded-2xl bg-blue-600 text-white text-center"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Ir a WhatsApp
-          </a>
         </div>
       </main>
     );
   }
 
   /* =========================
-     FORMULARIO
+     UI: Stepper simple (2 pasos)
      ========================= */
-  return (
-    <main className="max-w-3xl mx-auto p-6">
-      {/* Barra de progreso */}
-      <div className="w-full h-2 bg-gray-200 rounded mb-6">
+  const Stepper = () => (
+    <div className="mb-4">
+      <div className="flex items-center justify-between text-sm">
+        <div className={`font-medium ${step === 1 ? "text-blue-700" : "text-gray-500"}`}>
+          1. Información
+        </div>
+        <div className={`font-medium ${step === 2 ? "text-blue-700" : "text-gray-500"}`}>
+          2. Datos
+        </div>
+      </div>
+
+      <div className="w-full h-2 bg-gray-200 rounded mt-2">
         <div
           className="h-2 bg-blue-500 rounded transition-all"
           style={{ width: barWidth }}
         />
       </div>
+    </div>
+  );
+
+  /* =========================
+     FORMULARIO
+     ========================= */
+  return (
+    <main className="max-w-3xl mx-auto p-6">
+      <Stepper />
 
       {/* Título y descripción */}
       <h1 className="text-2xl font-semibold mb-4">
@@ -377,54 +384,63 @@ export default function DiagnosticoContent() {
 
       {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
 
-      {/* Paso 1 */}
+      {/* Paso 1: Preguntas */}
       {step === 1 && (
         <section className="space-y-6">
-          {QUESTIONS.map((q) => (
-            <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
-              <label className="font-medium block mb-3">{q.label}</label>
+          {QUESTIONS.map((q) => {
+            // ✅ Mensaje (textarea)
+            if (q.type === "text") {
+              const v = answers[q.id]?.value;
+              const str = typeof v === "string" ? v : "";
+              return (
+                <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
+                  <label className="font-medium block mb-3">{q.label}</label>
+                  <textarea
+                    className="w-full border rounded-xl px-3 py-2 min-h-[110px]"
+                    placeholder="Comparte más detalles si lo deseas"
+                    value={str}
+                    onChange={(e) => handleTextAnswer(q.id, e.target.value)}
+                  />
+                </div>
+              );
+            }
 
-              <div className="space-y-2">
-                {q.options.map((o) => {
-                  const ans = answers[q.id]?.value;
-                  const isChecked =
-                    q.type === "multi"
-                      ? Array.isArray(ans) && ans.includes(o.value)
-                      : ans === o.value;
+            // ✅ Preguntas single
+            return (
+              <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
+                <label className="font-medium block mb-3">{q.label}</label>
 
-                  return (
+                <div className="space-y-2">
+                  {q.options.map((o) => (
                     <div key={o.value} className="flex items-center gap-3">
                       <input
-                        type={q.type === "multi" ? "checkbox" : "radio"}
+                        type="radio"
                         id={`${q.id}_${o.value}`}
                         name={q.id}
                         className="cursor-pointer"
                         onChange={() => handleSelect(q.id, o.value)}
-                        checked={!!isChecked}
+                        checked={answers[q.id]?.value === o.value}
                       />
-                      <label
-                        htmlFor={`${q.id}_${o.value}`}
-                        className="cursor-pointer"
-                      >
+                      <label htmlFor={`${q.id}_${o.value}`} className="cursor-pointer">
                         {o.label}
                       </label>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
 
-              {/* Campo libre solo si la opción seleccionada lo requiere */}
-              {shouldShowExtraInput(q.id) && (
-                <input
-                  type="text"
-                  placeholder="Especifica aquí"
-                  className="mt-3 w-full border rounded-xl px-3 py-2"
-                  value={answers[q.id]?.extraText ?? ""}
-                  onChange={(e) => handleExtraText(q.id, e.target.value)}
-                />
-              )}
-            </div>
-          ))}
+                {/* Campo libre solo si la opción seleccionada lo requiere */}
+                {shouldShowExtraInput(q.id) && (
+                  <input
+                    type="text"
+                    placeholder="Especifica aquí"
+                    className="mt-3 w-full border rounded-xl px-3 py-2"
+                    value={answers[q.id]?.extraText ?? ""}
+                    onChange={(e) => handleExtraText(q.id, e.target.value)}
+                  />
+                )}
+              </div>
+            );
+          })}
 
           <div className="flex justify-end">
             <button
@@ -438,7 +454,7 @@ export default function DiagnosticoContent() {
         </section>
       )}
 
-      {/* Paso 2 */}
+      {/* Paso 2: Datos + consentimiento + submit */}
       {step === 2 && (
         <section className="space-y-4">
           <div>
@@ -449,6 +465,7 @@ export default function DiagnosticoContent() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
+
           <div>
             <label className="block mb-1">Empresa</label>
             <input
@@ -458,7 +475,6 @@ export default function DiagnosticoContent() {
             />
           </div>
 
-          {/* Cargo en la empresa (obligatorio) */}
           <div>
             <label className="block mb-1">Cargo en la empresa</label>
             <input
@@ -483,17 +499,13 @@ export default function DiagnosticoContent() {
             )}
           </div>
 
-          {/* País */}
           <div>
             <label className="block mb-1">País</label>
             <select
               className="w-full border rounded-xl px-3 py-2"
               value={form.country}
               onChange={(e) =>
-                setForm({
-                  ...form,
-                  country: e.target.value as CountryValue,
-                })
+                setForm({ ...form, country: e.target.value as CountryValue })
               }
             >
               {COUNTRIES.map((c) => (
@@ -504,7 +516,6 @@ export default function DiagnosticoContent() {
             </select>
           </div>
 
-          {/* Teléfono con prefijo automático */}
           <div>
             <label className="block mb-1">Teléfono</label>
             <div className="flex">
@@ -526,8 +537,7 @@ export default function DiagnosticoContent() {
               />
             </div>
 
-            {!isPhoneValid(form.phoneLocal, form.country) &&
-            form.phoneLocal.length > 0 ? (
+            {!isPhoneValid(form.phoneLocal, form.country) && form.phoneLocal.length > 0 ? (
               <p className="text-xs text-red-600 mt-1">{phoneRequirementText}</p>
             ) : (
               <p className="text-xs text-gray-500 mt-1">
@@ -536,39 +546,17 @@ export default function DiagnosticoContent() {
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-2">
-            <button
-              onClick={() => setStep(1)}
-              className="px-5 py-3 rounded-2xl border"
-            >
-              Atrás
-            </button>
-            <button
-              onClick={() => setStep(3)}
-              disabled={!canContinueData}
-              className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
-            >
-              Siguiente
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* Paso 3 */}
-      {step === 3 && (
-        <section className="space-y-4">
+          {/* Consentimiento (en esta pantalla) */}
           <div className="p-4 rounded-2xl border border-gray-200">
             <label className="flex items-start gap-3">
               <input
                 type="checkbox"
                 checked={form.consent}
-                onChange={(e) =>
-                  setForm({ ...form, consent: e.target.checked })
-                }
+                onChange={(e) => setForm({ ...form, consent: e.target.checked })}
               />
               <span>
-                Autorizo a Grupo Inforum a contactarme respecto a esta
-                evaluación y servicios relacionados. He leído la{" "}
+                Autorizo a Grupo Inforum a contactarme respecto a esta evaluación y servicios
+                relacionados. He leído la{" "}
                 {process.env.NEXT_PUBLIC_PRIVACY_URL ? (
                   <a
                     href={process.env.NEXT_PUBLIC_PRIVACY_URL}
@@ -584,16 +572,15 @@ export default function DiagnosticoContent() {
               </span>
             </label>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <button
-              onClick={() => setStep(2)}
-              className="px-5 py-3 rounded-2xl border"
-            >
+
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <button onClick={() => setStep(1)} className="px-5 py-3 rounded-2xl border">
               Atrás
             </button>
+
             <button
               onClick={onSubmit}
-              disabled={loading || !form.consent}
+              disabled={loading || !canContinueData || !form.consent}
               className="px-5 py-3 rounded-2xl shadow bg-blue-600 text-white disabled:opacity-50"
             >
               {loading ? "Enviando..." : "Enviar formulario"}
