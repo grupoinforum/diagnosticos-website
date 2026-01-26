@@ -6,13 +6,35 @@ import { useSearchParams } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /* =========================
+   TIPOS (para evitar 'never')
+   ========================= */
+type QuestionSingleOption = { value: string; label: string; requiresText?: boolean };
+
+type QuestionSingle = {
+  id: "industria" | "interes";
+  label: string;
+  type: "single";
+  options: QuestionSingleOption[];
+  required: true;
+};
+
+type QuestionText = {
+  id: "mensaje";
+  label: string;
+  type: "text";
+  required: false;
+};
+
+type Question = QuestionSingle | QuestionText;
+
+/* =========================
    PREGUNTAS – SIN PUNTUACIÓN
    ========================= */
-const QUESTIONS = [
+const QUESTIONS: readonly Question[] = [
   {
     id: "industria",
     label: "¿En qué industria opera la compañía?",
-    type: "single" as const, // ✅ solo 1
+    type: "single",
     options: [
       { value: "produccion", label: "Producción" },
       { value: "distribucion", label: "Distribución" },
@@ -26,7 +48,7 @@ const QUESTIONS = [
   {
     id: "interes",
     label: "¿En qué producto o servicio está interesado?",
-    type: "single" as const,
+    type: "single",
     options: [
       { value: "sapb1", label: "SAP Business One" },
       { value: "diagnostico_360_sapb1", label: "Diagnóstico 360 de su sistema SAPB1" },
@@ -41,11 +63,14 @@ const QUESTIONS = [
   {
     id: "mensaje",
     label: "Mensaje (opcional)",
-    type: "text" as const, // ✅ textarea
+    type: "text",
     required: false,
   },
-] as const;
+];
 
+/* =========================
+   RESPUESTAS
+   ========================= */
 type Answer = { id: string; value: string | string[]; extraText?: string };
 
 /* =========================
@@ -174,11 +199,6 @@ export default function DiagnosticoContent() {
   const barWidth = progressPct + "%";
 
   const handleSelect = (qid: string, optionValue: string) => {
-    const q = QUESTIONS.find((qq) => qq.id === qid)!;
-
-    // Solo single aquí
-    if (q.type !== "single") return;
-
     setAnswers((prev) => ({
       ...prev,
       [qid]: { id: qid, value: optionValue },
@@ -207,11 +227,11 @@ export default function DiagnosticoContent() {
 
     const selected = answers[qid]?.value;
     const selectedStr = typeof selected === "string" ? selected : "";
-    const selectedOpt = (q.options || []).find((o: any) => o.value === selectedStr) as any;
+    const selectedOpt = q.options.find((o) => o.value === selectedStr);
     return !!selectedOpt?.requiresText;
   };
 
-  // ✅ solo Q1 y Q2 obligatorias
+  // ✅ solo Q1 y Q2 obligatorias (Q3 opcional)
   const canContinueQuestions = useMemo(() => {
     return QUESTIONS.every((q) => {
       if (!q.required) return true;
@@ -221,10 +241,8 @@ export default function DiagnosticoContent() {
       if (q.type === "single") {
         return typeof a.value === "string" && a.value.trim().length > 0;
       }
-      if (q.type === "text") {
-        return typeof a.value === "string" && a.value.trim().length > 0;
-      }
-      return false;
+      // q.type === "text" no es required en este formulario
+      return true;
     });
   }, [answers]);
 
@@ -317,7 +335,6 @@ export default function DiagnosticoContent() {
   if (resultUI) {
     return (
       <main className="max-w-3xl mx-auto p-6">
-        {/* Barra de progreso final */}
         <div className="w-full h-2 bg-gray-200 rounded mb-6">
           <div className="h-2 bg-blue-500 rounded" style={{ width: "100%" }} />
         </div>
@@ -343,7 +360,7 @@ export default function DiagnosticoContent() {
   }
 
   /* =========================
-     UI: Stepper simple (2 pasos)
+     UI: Stepper (2 pasos)
      ========================= */
   const Stepper = () => (
     <div className="mb-4">
@@ -372,7 +389,6 @@ export default function DiagnosticoContent() {
     <main className="max-w-3xl mx-auto p-6">
       <Stepper />
 
-      {/* Título y descripción */}
       <h1 className="text-2xl font-semibold mb-4">
         Análisis de Software de Gestión Empresarial
       </h1>
@@ -388,7 +404,6 @@ export default function DiagnosticoContent() {
       {step === 1 && (
         <section className="space-y-6">
           {QUESTIONS.map((q) => {
-            // ✅ Mensaje (textarea)
             if (q.type === "text") {
               const v = answers[q.id]?.value;
               const str = typeof v === "string" ? v : "";
@@ -405,7 +420,7 @@ export default function DiagnosticoContent() {
               );
             }
 
-            // ✅ Preguntas single
+            // single
             return (
               <div key={q.id} className="p-4 rounded-2xl border border-gray-200">
                 <label className="font-medium block mb-3">{q.label}</label>
@@ -428,7 +443,6 @@ export default function DiagnosticoContent() {
                   ))}
                 </div>
 
-                {/* Campo libre solo si la opción seleccionada lo requiere */}
                 {shouldShowExtraInput(q.id) && (
                   <input
                     type="text"
@@ -546,7 +560,6 @@ export default function DiagnosticoContent() {
             )}
           </div>
 
-          {/* Consentimiento (en esta pantalla) */}
           <div className="p-4 rounded-2xl border border-gray-200">
             <label className="flex items-start gap-3">
               <input
