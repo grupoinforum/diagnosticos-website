@@ -286,7 +286,7 @@ export default function DiagnosticoContent() {
 
       {step === 1 ? (
         <div className="space-y-7">
-          <h1 className="text-2xl font-semibold">Diagnóstico</h1>
+          <h1 className="text-2xl font-semibold">Solicitud de Información</h1>
 
           {/* Pregunta 1 */}
           <div className="rounded-xl border border-gray-200 p-5">
