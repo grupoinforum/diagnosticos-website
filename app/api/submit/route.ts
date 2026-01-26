@@ -100,7 +100,7 @@ const lead =
   "Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en contacto en menos de 24hrs.";
 
   const SITE_URL = "https://www.grupoinforum.com";
-  const THUMB_URL = `${origin}/video.png`;
+  const THUMB_URL = `${origin}/video1.png`;
 
   const text = `${lead}
 
@@ -118,7 +118,7 @@ Visita nuestro website: ${SITE_URL}`.trim();
 
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0">
     <tr>
-      <td bgcolor="#1D4ED8" style="border-radius:10px">
+      <td bgcolor="#082a49" style="border-radius:10px">
         <a href="${SITE_URL}" target="_blank" rel="noopener"
            style="font-size:16px;line-height:16px;font-weight:600;color:#ffffff;text-decoration:none;padding:12px 18px;display:inline-block">
           Visita nuestro website
