@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
 /* ========= Tipos ========= */
-type Answer = { id: string; value: string; extraText?: string };
+type Answer = { id: string; value: string | string[]; extraText?: string };
 type Payload = {
   name: string;
   company?: string;
@@ -232,13 +232,13 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
     if (!Array.isArray(items) || !items.length) return "";
     const mapLabel: Record<string, string> = {
       industria: "Industria",
-      erp: "ERP",
-      busca: "Búsqueda",
+      interes: "Interés",
     };
     const lines = items.map((a) => {
       const k = mapLabel[a.id] || a.id;
+      const v = Array.isArray(a.value) ? a.value.join(", ") : a.value;
       const extra = a.extraText ? ` (${a.extraText})` : "";
-      return `- ${k}: ${a.value}${extra}`;
+      return `- ${k}: ${v}${extra}`;
     });
     return lines.join("\n");
   } catch {
