@@ -7,7 +7,7 @@ type CountryCode = "GT" | "SV" | "HN" | "PA" | "RD" | "EC";
 
 type AnswerItem = {
   id: "industria" | "interes" | "mensaje";
-  value: string;
+  value: string | string[];
   extraText?: string;
 };
 
@@ -27,21 +27,30 @@ type SubmitPayload = {
 type Option = { label: string; value: string };
 
 const INDUSTRIA_OPTIONS: Option[] = [
-  { label: "Retail", value: "Retail" },
-  { label: "Distribución", value: "Distribución" },
   { label: "Producción", value: "Producción" },
+  { label: "Distribución", value: "Distribución" },
+  { label: "Retail", value: "Retail" },
   { label: "Servicios", value: "Servicios" },
-  { label: "Construcción", value: "Construcción" },
-  { label: "Alimentos y bebidas", value: "Alimentos y bebidas" },
+  { label: "Inmobiliaria/ Desarrollo", value: "Inmobiliaria/ Desarrollo" },
   { label: "Otro", value: "Otro" },
 ];
 
 const INTERES_OPTIONS: Option[] = [
   { label: "SAP Business One", value: "SAP Business One" },
-  { label: "Infraestructura / Cloud", value: "Infraestructura / Cloud" },
-  { label: "Ciberseguridad", value: "Ciberseguridad" },
-  { label: "Continuidad / Backups", value: "Continuidad / Backups" },
-  { label: "Desarrollo", value: "Desarrollo" },
+  {
+    label: "Diagnóstico 360 de su sistema SAP Business One",
+    value: "Diagnóstico 360 de su sistema SAP Business One",
+  },
+  { label: "IaaS / Servicio de DRP", value: "IaaS / Servicio de DRP" },
+  { label: "Software de Nómina", value: "Software de Nómina" },
+  {
+    label: "Software de Gestión de Productos",
+    value: "Software de Gestión de Productos",
+  },
+  {
+    label: "Integración Bancaria con SAP Business One",
+    value: "Integración Bancaria con SAP Business One",
+  },
   { label: "Otro", value: "Otro" },
 ];
 
@@ -84,7 +93,7 @@ export default function DiagnosticoContent() {
   const [step, setStep] = useState<1 | 2>(1);
 
   // ===== Paso 1: preguntas =====
-  const [industria, setIndustria] = useState<string>("");
+  const [industria, setIndustria] = useState<string[]>([]);
   const [industriaOtro, setIndustriaOtro] = useState<string>("");
 
   const [interes, setInteres] = useState<string>("");
@@ -107,7 +116,6 @@ export default function DiagnosticoContent() {
   // Auto-prefijo al cambiar país (si el usuario no ha editado manualmente demasiado)
   const countryPrefix = useMemo(() => COUNTRY_PREFIX[country], [country]);
   React.useEffect(() => {
-    // Si el teléfono está vacío o todavía coincide con algún prefijo, lo reseteamos al nuevo prefijo
     const allPrefixes = Object.values(COUNTRY_PREFIX);
     const normalized = phone.trim();
     if (!normalized || allPrefixes.includes(normalized)) {
@@ -116,12 +124,22 @@ export default function DiagnosticoContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countryPrefix]);
 
+  // Limpia texto "Otro" si ya no aplica
+  React.useEffect(() => {
+    if (!industria.includes("Otro") && industriaOtro) setIndustriaOtro("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [industria]);
+  React.useEffect(() => {
+    if (interes !== "Otro" && interesOtro) setInteresOtro("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interes]);
+
   // ===== Validaciones =====
   const step1Valid = useMemo(() => {
-    // 1 obligatoria
-    if (!isNonEmpty(industria)) return false;
-    // Si industria = Otro -> obligatorio texto
-    if (industria === "Otro" && !isNonEmpty(industriaOtro)) return false;
+    // 1 obligatoria (al menos una seleccionada)
+    if (!industria.length) return false;
+    // Si industria incluye Otro -> obligatorio texto
+    if (industria.includes("Otro") && !isNonEmpty(industriaOtro)) return false;
 
     // 2 obligatoria
     if (!isNonEmpty(interes)) return false;
@@ -170,7 +188,7 @@ export default function DiagnosticoContent() {
       {
         id: "industria",
         value: industria,
-        ...(industria === "Otro" ? { extraText: industriaOtro.trim() } : {}),
+        ...(industria.includes("Otro") ? { extraText: industriaOtro.trim() } : {}),
       },
       {
         id: "interes",
@@ -293,31 +311,36 @@ export default function DiagnosticoContent() {
             <p className="font-semibold mb-3">
               1. ¿En qué industria opera la compañía? <span className="text-red-600">*</span>
             </p>
+
             <div className="space-y-2">
               {INDUSTRIA_OPTIONS.map((opt) => (
                 <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="radio"
-                    name="industria"
+                    type="checkbox"
                     value={opt.value}
-                    checked={industria === opt.value}
-                    onChange={(e) => setIndustria(e.target.value)}
+                    checked={industria.includes(opt.value)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIndustria((prev) =>
+                        checked ? [...prev, opt.value] : prev.filter((v) => v !== opt.value)
+                      );
+                    }}
                   />
                   <span>{opt.label}</span>
                 </label>
               ))}
             </div>
 
-            {industria === "Otro" ? (
+            {industria.includes("Otro") ? (
               <div className="mt-4">
                 <label className="block text-sm font-semibold mb-2">
-                  Especifica cuál <span className="text-red-600">*</span>
+                  Otro: Especificar <span className="text-red-600">*</span>
                 </label>
                 <input
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={industriaOtro}
                   onChange={(e) => setIndustriaOtro(e.target.value)}
-                  placeholder="Escribe tu industria"
+                  placeholder="Escribe la industria"
                 />
               </div>
             ) : null}
@@ -326,8 +349,10 @@ export default function DiagnosticoContent() {
           {/* Pregunta 2 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-3">
-              2. ¿En qué producto o servicio está interesado? <span className="text-red-600">*</span>
+              2. ¿En qué producto o servicio está interesado?{" "}
+              <span className="text-red-600">*</span>
             </p>
+
             <div className="space-y-2">
               {INTERES_OPTIONS.map((opt) => (
                 <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
@@ -346,7 +371,7 @@ export default function DiagnosticoContent() {
             {interes === "Otro" ? (
               <div className="mt-4">
                 <label className="block text-sm font-semibold mb-2">
-                  Especifica cuál <span className="text-red-600">*</span>
+                  Otro: Especificar <span className="text-red-600">*</span>
                 </label>
                 <input
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
