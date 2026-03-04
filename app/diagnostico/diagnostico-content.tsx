@@ -88,12 +88,19 @@ function isNonEmpty(s?: string) {
   return typeof s === "string" && s.trim().length > 0;
 }
 
-/* ========= Validaciones: correo corporativo + teléfono ========= */
-function normalizeEmail(raw: string) {
-  return raw.trim().toLowerCase();
+function normalizeEmail(s: string) {
+  return s.trim().toLowerCase();
 }
 
-const PERSONAL_EMAIL_DOMAINS = new Set([
+function isValidEmailFormat(email: string) {
+  // Simple y robusto para frontend (sin ponerse demasiado “RFC”)
+  const e = normalizeEmail(email);
+  if (e.length > 254) return false;
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  return re.test(e);
+}
+
+const BLOCKED_EMAIL_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
   "hotmail.com",
@@ -104,45 +111,32 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
   "yahoo.es",
   "icloud.com",
   "me.com",
+  "mac.com",
   "aol.com",
   "proton.me",
   "protonmail.com",
-  "pm.me",
-  "gmx.com",
-  "gmx.net",
-  // "zoho.com", // si quieres permitir Zoho, déjalo comentado; si lo quieres bloquear, descomenta
 ]);
 
-function isValidEmailFormat(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email);
-}
-
-function getEmailDomain(email: string) {
-  const at = email.lastIndexOf("@");
-  if (at < 0) return "";
-  return email.slice(at + 1).toLowerCase();
-}
-
-function isCorporateEmail(emailRaw: string) {
-  const email = normalizeEmail(emailRaw);
-  if (!isValidEmailFormat(email)) return false;
-  const domain = getEmailDomain(email);
+function isCorporateEmail(email: string) {
+  const e = normalizeEmail(email);
+  if (!isValidEmailFormat(e)) return false;
+  const domain = e.split("@")[1] || "";
   if (!domain) return false;
-  if (PERSONAL_EMAIL_DOMAINS.has(domain)) return false;
-  if (!domain.includes(".")) return false;
-  return true;
+  return !BLOCKED_EMAIL_DOMAINS.has(domain);
 }
 
-function normalizePhone(raw: string) {
-  let x = raw.trim();
-  x = x.replace(/[^\d+]/g, "");
-  x = x.replace(/\+(?=.+\+)/g, "");
-  return x;
+function normalizePhone(input: string) {
+  // mantiene + y números; elimina espacios, guiones, paréntesis, etc.
+  return input.trim().replace(/[^\d+]/g, "");
 }
 
-function isValidPhone(phoneRaw: string) {
-  const p = normalizePhone(phoneRaw);
-  return /^\+\d{8,15}$/.test(p);
+function isValidPhone(phone: string) {
+  const p = normalizePhone(phone);
+  // E.164 aproximado: + + 8 a 15 dígitos (GT suele ser +502 + 8 dígitos)
+  if (!p.startsWith("+")) return false;
+  const digits = p.replace(/\D/g, "");
+  // digits incluye el prefijo sin el + (solo números)
+  return digits.length >= 8 && digits.length <= 15;
 }
 
 export default function DiagnosticoContent() {
@@ -186,12 +180,13 @@ export default function DiagnosticoContent() {
     if (!industria.includes("Otro") && industriaOtro) setIndustriaOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [industria]);
+
   React.useEffect(() => {
     if (interes !== "Otro" && interesOtro) setInteresOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interes]);
 
-  // ===== Validaciones =====
+  // ===== Validaciones (boolean) =====
   const step1Valid = useMemo(() => {
     if (!industria.length) return false;
     if (industria.includes("Otro") && !isNonEmpty(industriaOtro)) return false;
@@ -206,22 +201,44 @@ export default function DiagnosticoContent() {
     if (!isNonEmpty(name)) return false;
     if (!isNonEmpty(company)) return false;
     if (!isNonEmpty(role)) return false;
-
     if (!isNonEmpty(email)) return false;
     if (!isCorporateEmail(email)) return false;
-
     if (!isNonEmpty(country)) return false;
-
     if (!isNonEmpty(phone)) return false;
     if (!isValidPhone(phone)) return false;
-
     return true;
   }, [name, company, role, email, country, phone]);
 
+  function step1ErrorMessage(): string | null {
+    if (!industria.length) return "Selecciona al menos una industria.";
+    if (industria.includes("Otro") && !isNonEmpty(industriaOtro))
+      return "En industria: si marcas 'Otro', debes especificar cuál.";
+    if (!isNonEmpty(interes)) return "Selecciona un producto o servicio de interés.";
+    if (interes === "Otro" && !isNonEmpty(interesOtro))
+      return "En interés: si marcas 'Otro', debes especificar cuál.";
+    return null;
+  }
+
+  function step2ErrorMessage(): string | null {
+    if (!isNonEmpty(name)) return "Por favor completa tu nombre.";
+    if (!isNonEmpty(company)) return "Por favor completa tu empresa.";
+    if (!isNonEmpty(role)) return "Por favor completa tu cargo.";
+    if (!isNonEmpty(email)) return "Por favor completa tu correo.";
+    if (!isValidEmailFormat(email)) return "Por favor ingresa un correo válido (formato).";
+    if (!isCorporateEmail(email))
+      return "Por favor usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).";
+    if (!isNonEmpty(country)) return "Por favor selecciona tu país.";
+    if (!isNonEmpty(phone)) return "Por favor completa tu teléfono.";
+    if (!isValidPhone(phone))
+      return "Por favor ingresa un teléfono válido con prefijo internacional. Ej: +50212345678";
+    return null;
+  }
+
   function goNext() {
     setError("");
-    if (!step1Valid) {
-      setError("Por favor completa las preguntas obligatorias.");
+    const e1 = step1ErrorMessage();
+    if (e1) {
+      setError(e1);
       return;
     }
     setStep(2);
@@ -237,42 +254,19 @@ export default function DiagnosticoContent() {
   async function submitAll() {
     setError("");
 
-    if (!step1Valid) {
-      setError("Por favor completa las preguntas obligatorias.");
+    // Paso 1 (por si llegan aquí de forma rara)
+    const e1 = step1ErrorMessage();
+    if (e1) {
+      setError(e1);
       setStep(1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
-    if (!step2Valid) {
-      if (!isNonEmpty(name)) {
-        setError("Por favor completa tu nombre.");
-        return;
-      }
-      if (!isNonEmpty(company)) {
-        setError("Por favor completa tu empresa.");
-        return;
-      }
-      if (!isNonEmpty(role)) {
-        setError("Por favor completa tu cargo.");
-        return;
-      }
-      if (!isNonEmpty(email)) {
-        setError("Por favor completa tu correo.");
-        return;
-      }
-      if (!isCorporateEmail(email)) {
-        setError("Por favor usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).");
-        return;
-      }
-      if (!isNonEmpty(phone)) {
-        setError("Por favor completa tu teléfono.");
-        return;
-      }
-      if (!isValidPhone(phone)) {
-        setError("Por favor ingresa un teléfono válido con prefijo internacional. Ej: +502XXXXXXXX");
-        return;
-      }
-      setError("Por favor revisa tus datos.");
+    // Paso 2 con error específico
+    const e2 = step2ErrorMessage();
+    if (e2) {
+      setError(e2);
       return;
     }
 
@@ -287,10 +281,7 @@ export default function DiagnosticoContent() {
         value: interes,
         ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
       },
-      {
-        id: "mensaje",
-        value: mensaje.trim(),
-      },
+      { id: "mensaje", value: mensaje.trim() },
     ];
 
     const payload: SubmitPayload = {
@@ -542,7 +533,7 @@ export default function DiagnosticoContent() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
-                Correo <span className="text-red-600">*</span>
+                Correo corporativo <span className="text-red-600">*</span>
               </label>
               <input
                 type="email"
@@ -551,8 +542,8 @@ export default function DiagnosticoContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="tu@empresa.com"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Debe ser correo corporativo (no Gmail/Hotmail/Outlook, etc.).
+              <p className="mt-2 text-xs text-gray-500">
+                No se aceptan correos genéricos (Gmail/Hotmail/Outlook, etc.).
               </p>
             </div>
 
@@ -580,13 +571,12 @@ export default function DiagnosticoContent() {
                   Teléfono <span className="text-red-600">*</span>
                 </label>
                 <input
-                  inputMode="tel"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder={countryPrefix}
                 />
-                <p className="text-xs text-gray-500 mt-1">Formato: +CódigoPaís + número.</p>
+                <p className="mt-2 text-xs text-gray-500">Ej: +50212345678</p>
               </div>
             </div>
           </div>
@@ -610,6 +600,13 @@ export default function DiagnosticoContent() {
               {loading ? "Enviando..." : "Enviar"}
             </button>
           </div>
+
+          {/* (Opcional) Hint visual si quieren saber por qué no envía */}
+          {!loading && !step2Valid ? (
+            <p className="text-xs text-gray-500">
+              Completa todos los campos obligatorios para enviar.
+            </p>
+          ) : null}
         </div>
       )}
     </div>
