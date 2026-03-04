@@ -88,6 +88,63 @@ function isNonEmpty(s?: string) {
   return typeof s === "string" && s.trim().length > 0;
 }
 
+/* ========= Validaciones: correo corporativo + teléfono ========= */
+function normalizeEmail(raw: string) {
+  return raw.trim().toLowerCase();
+}
+
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.es",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "pm.me",
+  "gmx.com",
+  "gmx.net",
+  // "zoho.com", // si quieres permitir Zoho, déjalo comentado; si lo quieres bloquear, descomenta
+]);
+
+function isValidEmailFormat(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email);
+}
+
+function getEmailDomain(email: string) {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return "";
+  return email.slice(at + 1).toLowerCase();
+}
+
+function isCorporateEmail(emailRaw: string) {
+  const email = normalizeEmail(emailRaw);
+  if (!isValidEmailFormat(email)) return false;
+  const domain = getEmailDomain(email);
+  if (!domain) return false;
+  if (PERSONAL_EMAIL_DOMAINS.has(domain)) return false;
+  if (!domain.includes(".")) return false;
+  return true;
+}
+
+function normalizePhone(raw: string) {
+  let x = raw.trim();
+  x = x.replace(/[^\d+]/g, "");
+  x = x.replace(/\+(?=.+\+)/g, "");
+  return x;
+}
+
+function isValidPhone(phoneRaw: string) {
+  const p = normalizePhone(phoneRaw);
+  return /^\+\d{8,15}$/.test(p);
+}
+
 export default function DiagnosticoContent() {
   // ===== Paso (2 pantallas) =====
   const [step, setStep] = useState<1 | 2>(1);
@@ -136,25 +193,30 @@ export default function DiagnosticoContent() {
 
   // ===== Validaciones =====
   const step1Valid = useMemo(() => {
-    // 1 obligatoria (al menos una seleccionada)
     if (!industria.length) return false;
-    // Si industria incluye Otro -> obligatorio texto
     if (industria.includes("Otro") && !isNonEmpty(industriaOtro)) return false;
 
-    // 2 obligatoria
     if (!isNonEmpty(interes)) return false;
-    // Si interes = Otro -> obligatorio texto
     if (interes === "Otro" && !isNonEmpty(interesOtro)) return false;
 
-    // 3 opcional (mensaje)
     return true;
   }, [industria, industriaOtro, interes, interesOtro]);
 
   const step2Valid = useMemo(() => {
     if (!isNonEmpty(name)) return false;
+    if (!isNonEmpty(company)) return false;
+    if (!isNonEmpty(role)) return false;
+
     if (!isNonEmpty(email)) return false;
+    if (!isCorporateEmail(email)) return false;
+
+    if (!isNonEmpty(country)) return false;
+
+    if (!isNonEmpty(phone)) return false;
+    if (!isValidPhone(phone)) return false;
+
     return true;
-  }, [name, email]);
+  }, [name, company, role, email, country, phone]);
 
   function goNext() {
     setError("");
@@ -174,13 +236,43 @@ export default function DiagnosticoContent() {
 
   async function submitAll() {
     setError("");
+
     if (!step1Valid) {
       setError("Por favor completa las preguntas obligatorias.");
       setStep(1);
       return;
     }
+
     if (!step2Valid) {
-      setError("Por favor completa tu nombre y correo.");
+      if (!isNonEmpty(name)) {
+        setError("Por favor completa tu nombre.");
+        return;
+      }
+      if (!isNonEmpty(company)) {
+        setError("Por favor completa tu empresa.");
+        return;
+      }
+      if (!isNonEmpty(role)) {
+        setError("Por favor completa tu cargo.");
+        return;
+      }
+      if (!isNonEmpty(email)) {
+        setError("Por favor completa tu correo.");
+        return;
+      }
+      if (!isCorporateEmail(email)) {
+        setError("Por favor usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).");
+        return;
+      }
+      if (!isNonEmpty(phone)) {
+        setError("Por favor completa tu teléfono.");
+        return;
+      }
+      if (!isValidPhone(phone)) {
+        setError("Por favor ingresa un teléfono válido con prefijo internacional. Ej: +502XXXXXXXX");
+        return;
+      }
+      setError("Por favor revisa tus datos.");
       return;
     }
 
@@ -203,11 +295,11 @@ export default function DiagnosticoContent() {
 
     const payload: SubmitPayload = {
       name: name.trim(),
-      company: company.trim() || undefined,
-      role: role.trim() || undefined,
-      email: email.trim(),
+      company: company.trim(),
+      role: role.trim(),
+      email: normalizeEmail(email),
       country,
-      phone: phone.trim() || undefined,
+      phone: normalizePhone(phone),
       answers: { utms: getUTMs(), items },
     };
 
@@ -425,7 +517,9 @@ export default function DiagnosticoContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2">Empresa</label>
+              <label className="block text-sm font-semibold mb-2">
+                Empresa <span className="text-red-600">*</span>
+              </label>
               <input
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 value={company}
@@ -435,7 +529,9 @@ export default function DiagnosticoContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2">Cargo</label>
+              <label className="block text-sm font-semibold mb-2">
+                Cargo <span className="text-red-600">*</span>
+              </label>
               <input
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 value={role}
@@ -455,11 +551,16 @@ export default function DiagnosticoContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="tu@empresa.com"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Debe ser correo corporativo (no Gmail/Hotmail/Outlook, etc.).
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold mb-2">País</label>
+                <label className="block text-sm font-semibold mb-2">
+                  País <span className="text-red-600">*</span>
+                </label>
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={country}
@@ -475,13 +576,17 @@ export default function DiagnosticoContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold mb-2">Teléfono</label>
+                <label className="block text-sm font-semibold mb-2">
+                  Teléfono <span className="text-red-600">*</span>
+                </label>
                 <input
+                  inputMode="tel"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder={countryPrefix}
                 />
+                <p className="text-xs text-gray-500 mt-1">Formato: +CódigoPaís + número.</p>
               </div>
             </div>
           </div>
