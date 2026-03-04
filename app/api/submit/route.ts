@@ -46,9 +46,64 @@ const STAGE_CAPA1 = {
 } as const;
 
 /* ========= Helpers ========= */
+function isNonEmpty(s?: string) {
+  return typeof s === "string" && s.trim().length > 0;
+}
+
+function normalizeEmail(s: string) {
+  return s.trim().toLowerCase();
+}
+
+function isValidEmailFormat(email: string) {
+  const e = normalizeEmail(email);
+  if (e.length > 254) return false;
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  return re.test(e);
+}
+
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.es",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+]);
+
+function isCorporateEmail(email: string) {
+  const e = normalizeEmail(email);
+  if (!isValidEmailFormat(e)) return false;
+  const domain = e.split("@")[1] || "";
+  if (!domain) return false;
+  return !BLOCKED_EMAIL_DOMAINS.has(domain);
+}
+
+function normalizePhone(input: string) {
+  return input.trim().replace(/[^\d+]/g, "");
+}
+
+function isValidPhone(phone: string) {
+  const p = normalizePhone(phone);
+  if (!p.startsWith("+")) return false;
+  const digits = p.replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 15;
+}
+
 function countryToCode(label?: string): keyof typeof PIPELINES {
   if (!label) return "GT";
   const x = label.trim().toUpperCase();
+
+  // frontend usa RD, Pipedrive usa DO
+  if (x === "RD") return "DO";
+
   if (["GT", "SV", "HN", "DO", "EC", "PA"].includes(x)) return x as any;
 
   const MAP: Record<string, keyof typeof PIPELINES> = {
@@ -59,6 +114,7 @@ function countryToCode(label?: string): keyof typeof PIPELINES {
     PANAMA: "PA",
     "REPÚBLICA DOMINICANA": "DO",
     "REPUBLICA DOMINICANA": "DO",
+    "REP. DOMINICANA": "DO",
     ECUADOR: "EC",
   };
   return MAP[x] ?? "GT";
@@ -79,71 +135,12 @@ async function pd(path: string, init?: RequestInit) {
 }
 
 function absoluteOriginFromReq(req: Request) {
-  const proto = (req.headers.get("x-forwarded-proto") || "https")
-    .split(",")[0]
-    .trim();
+  const proto = (req.headers.get("x-forwarded-proto") || "https").split(",")[0].trim();
   const host = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "")
     .split(",")[0]
     .trim();
   if (!host) return "https://inforum-diagnostico.vercel.app";
   return `${proto}://${host}`;
-}
-
-/* ========= Validaciones servidor: email corporativo + teléfono ========= */
-function normalizeEmail(raw: string) {
-  return String(raw || "").trim().toLowerCase();
-}
-
-const PERSONAL_EMAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "hotmail.com",
-  "outlook.com",
-  "live.com",
-  "msn.com",
-  "yahoo.com",
-  "yahoo.es",
-  "icloud.com",
-  "me.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "pm.me",
-  "gmx.com",
-  "gmx.net",
-  // "zoho.com", // si quieres permitir Zoho, déjalo comentado; si lo quieres bloquear, descomenta
-]);
-
-function isValidEmailFormat(x: string) {
-  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(x);
-}
-
-function getEmailDomain(x: string) {
-  const at = x.lastIndexOf("@");
-  if (at < 0) return "";
-  return x.slice(at + 1).toLowerCase();
-}
-
-function isCorporateEmail(x: string) {
-  const e = normalizeEmail(x);
-  if (!isValidEmailFormat(e)) return false;
-  const domain = getEmailDomain(e);
-  if (!domain) return false;
-  if (PERSONAL_EMAIL_DOMAINS.has(domain)) return false;
-  if (!domain.includes(".")) return false;
-  return true;
-}
-
-function normalizePhone(raw: string) {
-  let x = String(raw || "").trim();
-  x = x.replace(/[^\d+]/g, "");
-  x = x.replace(/\+(?=.+\+)/g, "");
-  return x;
-}
-
-function isValidPhone(x: string) {
-  const p = normalizePhone(x);
-  return /^\+\d{8,15}$/.test(p);
 }
 
 /* ========= Email (Brevo + Nodemailer) ========= */
@@ -215,8 +212,8 @@ async function sendEmailConfirmation(data: Payload, req: Request) {
 
 /* ========= Persona en Pipedrive (crear/actualizar con phone + role) ========= */
 async function upsertPersonWithPhoneAndRole(data: Payload) {
-  const email = data.email;
-  const phone = data.phone?.trim();
+  const email = normalizeEmail(data.email);
+  const phone = data.phone ? normalizePhone(data.phone) : undefined;
   const role = (data.role || "").trim();
 
   // 1) Buscar por email
@@ -232,7 +229,7 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
   }
 
   const buildBody = () => {
-    const body: any = { name: data.name };
+    const body: any = { name: data.name.trim() };
     if (phone) body.phone = [{ value: phone, primary: true, label: "work" }];
     if (PD_PERSON_ROLE_FIELD && role) body[PD_PERSON_ROLE_FIELD] = role;
     return body;
@@ -253,7 +250,7 @@ async function upsertPersonWithPhoneAndRole(data: Payload) {
 
   try {
     const createBody: any = {
-      name: data.name,
+      name: data.name.trim(),
       email: [{ value: email, primary: true, label: "work" }],
     };
     if (phone) createBody.phone = [{ value: phone, primary: true, label: "work" }];
@@ -296,53 +293,39 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
   }
 }
 
+/* ========= Validación central (server) ========= */
+function validatePayload(data: Payload): string | null {
+  if (!isNonEmpty(data?.name)) return "Por favor completa tu nombre.";
+  if (!isNonEmpty(data?.company)) return "Por favor completa tu empresa.";
+  if (!isNonEmpty(data?.role)) return "Por favor completa tu cargo.";
+  if (!isNonEmpty(data?.email)) return "Por favor completa tu correo.";
+  if (!isValidEmailFormat(data.email)) return "Por favor ingresa un correo válido (formato).";
+  if (!isCorporateEmail(data.email))
+    return "Por favor usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).";
+  if (!isNonEmpty(data?.country)) return "Por favor selecciona tu país.";
+  if (!isNonEmpty(data?.phone)) return "Por favor completa tu teléfono.";
+  if (!isValidPhone(data.phone!))
+    return "Por favor ingresa un teléfono válido con prefijo internacional. Ej: +50212345678";
+  return null;
+}
+
 /* ========= API ========= */
 export async function POST(req: Request) {
   try {
     const data = (await req.json()) as Payload;
 
-    // ===== Obligatorios (pantalla 2) =====
-    const name = String(data?.name || "").trim();
-    const company = String(data?.company || "").trim();
-    const role = String(data?.role || "").trim();
-    const email = normalizeEmail(data?.email);
-    const country = String(data?.country || "").trim();
-    const phone = normalizePhone(data?.phone || "");
-
-    if (!name || !company || !role || !email || !country || !phone) {
-      return NextResponse.json(
-        { ok: false, error: "Faltan campos obligatorios." },
-        { status: 400 }
-      );
+    // Validación estricta (para que no pase nada “raro” al backend)
+    const validationError = validatePayload(data);
+    if (validationError) {
+      return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
     }
 
-    if (!isCorporateEmail(email)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Correo inválido. Usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!isValidPhone(phone)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Teléfono inválido. Usa formato con prefijo internacional. Ej: +502XXXXXXXX",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Normalizados
-    data.name = name;
-    data.company = company;
-    data.role = role;
-    data.email = email;
-    data.country = country;
-    data.phone = phone;
+    // Normalizaciones (para consistencia)
+    data.email = normalizeEmail(data.email);
+    data.phone = normalizePhone(data.phone!);
+    data.name = data.name.trim();
+    data.company = data.company?.trim();
+    data.role = data.role?.trim();
 
     const cc = countryToCode(data.country);
     const pipeline_id = PIPELINES[cc];
@@ -350,7 +333,7 @@ export async function POST(req: Request) {
 
     const personId = await upsertPersonWithPhoneAndRole(data);
 
-    // Organización (opcional: pero ya es obligatoria en tu formulario; igual dejo la lógica)
+    // Organización (obligatoria por tu regla en frontend, pero igual lo manejamos)
     let orgId: number | undefined;
     if (data.company) {
       try {
