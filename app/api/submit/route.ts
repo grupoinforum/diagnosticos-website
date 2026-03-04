@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
- 
+
 /* ========= Tipos ========= */
 type Answer = { id: string; value: string | string[]; extraText?: string };
 type Payload = {
@@ -89,6 +89,63 @@ function absoluteOriginFromReq(req: Request) {
   return `${proto}://${host}`;
 }
 
+/* ========= Validaciones servidor: email corporativo + teléfono ========= */
+function normalizeEmail(raw: string) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.es",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "pm.me",
+  "gmx.com",
+  "gmx.net",
+  // "zoho.com", // si quieres permitir Zoho, déjalo comentado; si lo quieres bloquear, descomenta
+]);
+
+function isValidEmailFormat(x: string) {
+  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(x);
+}
+
+function getEmailDomain(x: string) {
+  const at = x.lastIndexOf("@");
+  if (at < 0) return "";
+  return x.slice(at + 1).toLowerCase();
+}
+
+function isCorporateEmail(x: string) {
+  const e = normalizeEmail(x);
+  if (!isValidEmailFormat(e)) return false;
+  const domain = getEmailDomain(e);
+  if (!domain) return false;
+  if (PERSONAL_EMAIL_DOMAINS.has(domain)) return false;
+  if (!domain.includes(".")) return false;
+  return true;
+}
+
+function normalizePhone(raw: string) {
+  let x = String(raw || "").trim();
+  x = x.replace(/[^\d+]/g, "");
+  x = x.replace(/\+(?=.+\+)/g, "");
+  return x;
+}
+
+function isValidPhone(x: string) {
+  const p = normalizePhone(x);
+  return /^\+\d{8,15}$/.test(p);
+}
+
 /* ========= Email (Brevo + Nodemailer) ========= */
 const VIDEO_ID = "Eau96xNp3Ds";
 const VIDEO_URL = `https://youtu.be/${VIDEO_ID}`;
@@ -96,8 +153,8 @@ const VIDEO_URL = `https://youtu.be/${VIDEO_ID}`;
 function buildEmailBodies(data: Payload, origin: string) {
   const subject = "Gracias por contactarnos – Grupo Inforum";
 
-const lead =
-  "Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en contacto en menos de 24hrs.";
+  const lead =
+    "Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en contacto en menos de 24hrs.";
 
   const SITE_URL = "https://www.grupoinforum.com";
   const THUMB_URL = `${origin}/video1.png`;
@@ -243,12 +300,49 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
 export async function POST(req: Request) {
   try {
     const data = (await req.json()) as Payload;
-    if (!data?.name || !data?.email) {
+
+    // ===== Obligatorios (pantalla 2) =====
+    const name = String(data?.name || "").trim();
+    const company = String(data?.company || "").trim();
+    const role = String(data?.role || "").trim();
+    const email = normalizeEmail(data?.email);
+    const country = String(data?.country || "").trim();
+    const phone = normalizePhone(data?.phone || "");
+
+    if (!name || !company || !role || !email || !country || !phone) {
       return NextResponse.json(
-        { ok: false, error: "Faltan nombre o email" },
+        { ok: false, error: "Faltan campos obligatorios." },
         { status: 400 }
       );
     }
+
+    if (!isCorporateEmail(email)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Correo inválido. Usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidPhone(phone)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Teléfono inválido. Usa formato con prefijo internacional. Ej: +502XXXXXXXX",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Normalizados
+    data.name = name;
+    data.company = company;
+    data.role = role;
+    data.email = email;
+    data.country = country;
+    data.phone = phone;
 
     const cc = countryToCode(data.country);
     const pipeline_id = PIPELINES[cc];
@@ -256,7 +350,7 @@ export async function POST(req: Request) {
 
     const personId = await upsertPersonWithPhoneAndRole(data);
 
-    // Organización (opcional)
+    // Organización (opcional: pero ya es obligatoria en tu formulario; igual dejo la lógica)
     let orgId: number | undefined;
     if (data.company) {
       try {
