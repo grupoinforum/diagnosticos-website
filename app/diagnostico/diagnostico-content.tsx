@@ -1,7 +1,7 @@
 // app/diagnostico/diagnostico-content.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 type CountryCode = "GT" | "SV" | "HN" | "PA" | "RD" | "EC";
 
@@ -93,7 +93,6 @@ function normalizeEmail(s: string) {
 }
 
 function isValidEmailFormat(email: string) {
-  // Simple y robusto para frontend (sin ponerse demasiado “RFC”)
   const e = normalizeEmail(email);
   if (e.length > 254) return false;
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -122,25 +121,26 @@ function isCorporateEmail(email: string) {
   if (!isValidEmailFormat(e)) return false;
   const domain = e.split("@")[1] || "";
   if (!domain) return false;
-  return !BLOCKED_EMAIL_DOMAINS.has(domain);
+  if (BLOCKED_EMAIL_DOMAINS.has(domain)) return false;
+  if (domain.endsWith(".local")) return false;
+  return true;
 }
 
-function normalizePhone(input: string) {
-  // mantiene + y números; elimina espacios, guiones, paréntesis, etc.
-  return input.trim().replace(/[^\d+]/g, "");
+function normalizePhone(phone: string) {
+  return phone.replace(/[^\d+]/g, "");
 }
 
 function isValidPhone(phone: string) {
   const p = normalizePhone(phone);
-  // E.164 aproximado: + + 8 a 15 dígitos (GT suele ser +502 + 8 dígitos)
-  if (!p.startsWith("+")) return false;
   const digits = p.replace(/\D/g, "");
-  // digits incluye el prefijo sin el + (solo números)
-  return digits.length >= 8 && digits.length <= 15;
+  if (!p.startsWith("+")) return false;
+  if (digits.length < 8 || digits.length > 15) return false;
+  return true;
 }
 
+type FieldErrors = Partial<Record<"name" | "company" | "role" | "email" | "phone", string>>;
+
 export default function DiagnosticoContent() {
-  // ===== Paso (2 pantallas) =====
   const [step, setStep] = useState<1 | 2>(1);
 
   // ===== Paso 1: preguntas =====
@@ -162,9 +162,21 @@ export default function DiagnosticoContent() {
 
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Banner general (pero ahora sticky + además marcamos campo)
   const [error, setError] = useState<string>("");
 
-  // Auto-prefijo al cambiar país (si el usuario no ha editado manualmente demasiado)
+  // Errores por campo (para marcar inputs)
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Refs para scroll al error
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  const companyRef = useRef<HTMLInputElement | null>(null);
+  const roleRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const phoneRef = useRef<HTMLInputElement | null>(null);
+
+  // Auto-prefijo al cambiar país
   const countryPrefix = useMemo(() => COUNTRY_PREFIX[country], [country]);
   React.useEffect(() => {
     const allPrefixes = Object.values(COUNTRY_PREFIX);
@@ -175,18 +187,17 @@ export default function DiagnosticoContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countryPrefix]);
 
-  // Limpia texto "Otro" si ya no aplica
+  // Limpia "Otro" si ya no aplica
   React.useEffect(() => {
     if (!industria.includes("Otro") && industriaOtro) setIndustriaOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [industria]);
-
   React.useEffect(() => {
     if (interes !== "Otro" && interesOtro) setInteresOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interes]);
 
-  // ===== Validaciones (boolean) =====
+  // ===== Validaciones Paso 1 =====
   const step1Valid = useMemo(() => {
     if (!industria.length) return false;
     if (industria.includes("Otro") && !isNonEmpty(industriaOtro)) return false;
@@ -197,76 +208,94 @@ export default function DiagnosticoContent() {
     return true;
   }, [industria, industriaOtro, interes, interesOtro]);
 
-  const step2Valid = useMemo(() => {
-    if (!isNonEmpty(name)) return false;
-    if (!isNonEmpty(company)) return false;
-    if (!isNonEmpty(role)) return false;
-    if (!isNonEmpty(email)) return false;
-    if (!isCorporateEmail(email)) return false;
-    if (!isNonEmpty(country)) return false;
-    if (!isNonEmpty(phone)) return false;
-    if (!isValidPhone(phone)) return false;
-    return true;
-  }, [name, company, role, email, country, phone]);
+  // ===== Validación Paso 2 (con mensajes) =====
+  function validateStep2(): { ok: boolean; errors: FieldErrors; firstRef?: React.RefObject<HTMLInputElement> } {
+    const errors: FieldErrors = {};
 
-  function step1ErrorMessage(): string | null {
-    if (!industria.length) return "Selecciona al menos una industria.";
-    if (industria.includes("Otro") && !isNonEmpty(industriaOtro))
-      return "En industria: si marcas 'Otro', debes especificar cuál.";
-    if (!isNonEmpty(interes)) return "Selecciona un producto o servicio de interés.";
-    if (interes === "Otro" && !isNonEmpty(interesOtro))
-      return "En interés: si marcas 'Otro', debes especificar cuál.";
-    return null;
+    const nm = name.trim();
+    const em = email.trim();
+    const ph = phone.trim();
+
+    if (!isNonEmpty(nm)) errors.name = "Este campo es obligatorio.";
+
+    // Empresa / cargo / tel obligatorios (como pediste)
+    const cp = company.trim();
+    if (!isNonEmpty(cp)) errors.company = "Este campo es obligatorio.";
+
+    const rl = role.trim();
+    if (!isNonEmpty(rl)) errors.role = "Este campo es obligatorio.";
+
+    if (!isNonEmpty(em)) {
+      errors.email = "Este campo es obligatorio.";
+    } else if (!isValidEmailFormat(em)) {
+      errors.email = "Ingresa un correo válido (ej. nombre@empresa.com).";
+    } else if (!isCorporateEmail(em)) {
+      errors.email = "Debe ser un correo corporativo (no Gmail/Hotmail/Outlook, etc.).";
+    }
+
+    if (!isNonEmpty(ph)) {
+      errors.phone = "Este campo es obligatorio.";
+    } else if (!isValidPhone(ph)) {
+      errors.phone = "Teléfono inválido. Usa formato internacional, ej. +502 5555 5555.";
+    }
+
+    // decide el primer campo con error (orden visual)
+    let first: React.RefObject<HTMLInputElement> | undefined;
+    if (errors.name) first = { current: nameRef.current } as any;
+    else if (errors.company) first = { current: companyRef.current } as any;
+    else if (errors.role) first = { current: roleRef.current } as any;
+    else if (errors.email) first = { current: emailRef.current } as any;
+    else if (errors.phone) first = { current: phoneRef.current } as any;
+
+    return { ok: Object.keys(errors).length === 0, errors, firstRef: first };
   }
 
-  function step2ErrorMessage(): string | null {
-    if (!isNonEmpty(name)) return "Por favor completa tu nombre.";
-    if (!isNonEmpty(company)) return "Por favor completa tu empresa.";
-    if (!isNonEmpty(role)) return "Por favor completa tu cargo.";
-    if (!isNonEmpty(email)) return "Por favor completa tu correo.";
-    if (!isValidEmailFormat(email)) return "Por favor ingresa un correo válido (formato).";
-    if (!isCorporateEmail(email))
-      return "Por favor usa un correo corporativo válido (no Gmail/Hotmail/Outlook, etc.).";
-    if (!isNonEmpty(country)) return "Por favor selecciona tu país.";
-    if (!isNonEmpty(phone)) return "Por favor completa tu teléfono.";
-    if (!isValidPhone(phone))
-      return "Por favor ingresa un teléfono válido con prefijo internacional. Ej: +50212345678";
-    return null;
+  function scrollToRef(ref: React.RefObject<HTMLInputElement> | { current: HTMLInputElement | null } | undefined) {
+    const el = ref?.current;
+    if (!el) return;
+    // scroll visible incluso si hay header fijo
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    // foco un momentito después para que se note
+    setTimeout(() => el.focus(), 200);
   }
 
   function goNext() {
     setError("");
-    const e1 = step1ErrorMessage();
-    if (e1) {
-      setError(e1);
+    if (!step1Valid) {
+      setError("Por favor completa las preguntas obligatorias.");
+      // también te sube arriba por si está abajo
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     setStep(2);
+    setFieldErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function goBack() {
     setError("");
+    setFieldErrors({});
     setStep(1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function submitAll() {
     setError("");
+    setFieldErrors({});
 
-    // Paso 1 (por si llegan aquí de forma rara)
-    const e1 = step1ErrorMessage();
-    if (e1) {
-      setError(e1);
+    if (!step1Valid) {
+      setError("Por favor completa las preguntas obligatorias.");
       setStep(1);
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
-    // Paso 2 con error específico
-    const e2 = step2ErrorMessage();
-    if (e2) {
-      setError(e2);
+    const v2 = validateStep2();
+    if (!v2.ok) {
+      setError("Revisa los campos marcados en rojo.");
+      setFieldErrors(v2.errors);
+      // IMPORTANTÍSIMO: te lleva al campo exacto con error aunque haya scroll
+      scrollToRef(v2.firstRef as any);
       return;
     }
 
@@ -281,16 +310,19 @@ export default function DiagnosticoContent() {
         value: interes,
         ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
       },
-      { id: "mensaje", value: mensaje.trim() },
+      {
+        id: "mensaje",
+        value: mensaje.trim(),
+      },
     ];
 
     const payload: SubmitPayload = {
       name: name.trim(),
-      company: company.trim(),
-      role: role.trim(),
-      email: normalizeEmail(email),
+      company: company.trim() || undefined,
+      role: role.trim() || undefined,
+      email: email.trim(),
       country,
-      phone: normalizePhone(phone),
+      phone: phone.trim() || undefined,
       answers: { utms: getUTMs(), items },
     };
 
@@ -311,12 +343,19 @@ export default function DiagnosticoContent() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e: any) {
       setError(e?.message || "Ocurrió un error.");
+      // si falla el backend, lo subimos arriba para que lo vean
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setLoading(false);
     }
   }
 
-  // ===== UI helpers =====
+  const inputBase =
+    "w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-offset-1";
+  const inputOk = "border-gray-300 focus:ring-[#0B4A6F]/40";
+  const inputBad = "border-red-500 focus:ring-red-300";
+  const errText = "mt-1 text-sm text-red-600";
+
   const Progress = ({ current }: { current: 1 | 2 }) => {
     const is1 = current === 1;
     const is2 = current === 2;
@@ -377,13 +416,14 @@ export default function DiagnosticoContent() {
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-10">
-      <Progress current={step} />
-
+      {/* Banner sticky: aunque haya scroll, SIEMPRE visible */}
       {error ? (
-        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="sticky top-2 z-50 mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
           {error}
         </div>
       ) : null}
+
+      <Progress current={step} />
 
       {step === 1 ? (
         <div className="space-y-7">
@@ -500,11 +540,17 @@ export default function DiagnosticoContent() {
                 Nombre <span className="text-red-600">*</span>
               </label>
               <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                ref={nameRef}
+                className={`${inputBase} ${fieldErrors.name ? inputBad : inputOk}`}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors((p) => ({ ...p, name: undefined }));
+                }}
                 placeholder="Tu nombre"
+                aria-invalid={!!fieldErrors.name}
               />
+              {fieldErrors.name ? <div className={errText}>{fieldErrors.name}</div> : null}
             </div>
 
             <div>
@@ -512,11 +558,17 @@ export default function DiagnosticoContent() {
                 Empresa <span className="text-red-600">*</span>
               </label>
               <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                ref={companyRef}
+                className={`${inputBase} ${fieldErrors.company ? inputBad : inputOk}`}
                 value={company}
-                onChange={(e) => setCompany(e.target.value)}
+                onChange={(e) => {
+                  setCompany(e.target.value);
+                  if (fieldErrors.company) setFieldErrors((p) => ({ ...p, company: undefined }));
+                }}
                 placeholder="Nombre de empresa"
+                aria-invalid={!!fieldErrors.company}
               />
+              {fieldErrors.company ? <div className={errText}>{fieldErrors.company}</div> : null}
             </div>
 
             <div>
@@ -524,11 +576,17 @@ export default function DiagnosticoContent() {
                 Cargo <span className="text-red-600">*</span>
               </label>
               <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                ref={roleRef}
+                className={`${inputBase} ${fieldErrors.role ? inputBad : inputOk}`}
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onChange={(e) => {
+                  setRole(e.target.value);
+                  if (fieldErrors.role) setFieldErrors((p) => ({ ...p, role: undefined }));
+                }}
                 placeholder="Tu cargo"
+                aria-invalid={!!fieldErrors.role}
               />
+              {fieldErrors.role ? <div className={errText}>{fieldErrors.role}</div> : null}
             </div>
 
             <div>
@@ -536,15 +594,18 @@ export default function DiagnosticoContent() {
                 Correo corporativo <span className="text-red-600">*</span>
               </label>
               <input
+                ref={emailRef}
                 type="email"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className={`${inputBase} ${fieldErrors.email ? inputBad : inputOk}`}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu@empresa.com"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors((p) => ({ ...p, email: undefined }));
+                }}
+                placeholder="nombre@empresa.com"
+                aria-invalid={!!fieldErrors.email}
               />
-              <p className="mt-2 text-xs text-gray-500">
-                No se aceptan correos genéricos (Gmail/Hotmail/Outlook, etc.).
-              </p>
+              {fieldErrors.email ? <div className={errText}>{fieldErrors.email}</div> : null}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -553,7 +614,7 @@ export default function DiagnosticoContent() {
                   País <span className="text-red-600">*</span>
                 </label>
                 <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  className={`${inputBase} ${inputOk}`}
                   value={country}
                   onChange={(e) => setCountry(e.target.value as CountryCode)}
                 >
@@ -571,12 +632,17 @@ export default function DiagnosticoContent() {
                   Teléfono <span className="text-red-600">*</span>
                 </label>
                 <input
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  ref={phoneRef}
+                  className={`${inputBase} ${fieldErrors.phone ? inputBad : inputOk}`}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
+                  }}
                   placeholder={countryPrefix}
+                  aria-invalid={!!fieldErrors.phone}
                 />
-                <p className="mt-2 text-xs text-gray-500">Ej: +50212345678</p>
+                {fieldErrors.phone ? <div className={errText}>{fieldErrors.phone}</div> : null}
               </div>
             </div>
           </div>
@@ -600,13 +666,6 @@ export default function DiagnosticoContent() {
               {loading ? "Enviando..." : "Enviar"}
             </button>
           </div>
-
-          {/* (Opcional) Hint visual si quieren saber por qué no envía */}
-          {!loading && !step2Valid ? (
-            <p className="text-xs text-gray-500">
-              Completa todos los campos obligatorios para enviar.
-            </p>
-          ) : null}
         </div>
       )}
     </div>
