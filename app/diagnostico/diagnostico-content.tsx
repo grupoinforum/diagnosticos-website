@@ -1,4 +1,3 @@
-// app/diagnostico/diagnostico-content.tsx
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
@@ -50,6 +49,10 @@ const INTERES_OPTIONS: Option[] = [
   {
     label: "Integración Bancaria con SAP Business One",
     value: "Integración Bancaria con SAP Business One",
+  },
+  {
+    label: "Fibbo portal para proveedores",
+    value: "Fibbo portal para proveedores",
   },
   { label: "Otro", value: "Otro" },
 ];
@@ -253,9 +256,7 @@ export default function DiagnosticoContent() {
   function scrollToRef(ref: React.RefObject<HTMLInputElement> | { current: HTMLInputElement | null } | undefined) {
     const el = ref?.current;
     if (!el) return;
-    // scroll visible incluso si hay header fijo
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    // foco un momentito después para que se note
     setTimeout(() => el.focus(), 200);
   }
 
@@ -263,7 +264,6 @@ export default function DiagnosticoContent() {
     setError("");
     if (!step1Valid) {
       setError("Por favor completa las preguntas obligatorias.");
-      // también te sube arriba por si está abajo
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
@@ -294,7 +294,6 @@ export default function DiagnosticoContent() {
     if (!v2.ok) {
       setError("Revisa los campos marcados en rojo.");
       setFieldErrors(v2.errors);
-      // IMPORTANTÍSIMO: te lleva al campo exacto con error aunque haya scroll
       scrollToRef(v2.firstRef as any);
       return;
     }
@@ -343,7 +342,6 @@ export default function DiagnosticoContent() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e: any) {
       setError(e?.message || "Ocurrió un error.");
-      // si falla el backend, lo subimos arriba para que lo vean
       window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setLoading(false);
@@ -416,7 +414,6 @@ export default function DiagnosticoContent() {
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-10">
-      {/* Banner sticky: aunque haya scroll, SIEMPRE visible */}
       {error ? (
         <div className="sticky top-2 z-50 mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
           {error}
@@ -429,7 +426,6 @@ export default function DiagnosticoContent() {
         <div className="space-y-7">
           <h1 className="text-2xl font-semibold">Solicitud de Información</h1>
 
-          {/* Pregunta 1 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-3">
               1. ¿En qué industria opera la compañía? <span className="text-red-600">*</span>
@@ -469,7 +465,6 @@ export default function DiagnosticoContent() {
             ) : null}
           </div>
 
-          {/* Pregunta 2 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-3">
               2. ¿En qué producto o servicio está interesado?{" "}
@@ -506,7 +501,6 @@ export default function DiagnosticoContent() {
             ) : null}
           </div>
 
-          {/* Pregunta 3 */}
           <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-2">
               3. Mensaje <span className="text-gray-500 font-normal">(opcional)</span>
