@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type CountryCode = "GT" | "SV" | "HN" | "PA" | "RD" | "EC";
 
@@ -144,6 +145,7 @@ function isValidPhone(phone: string) {
 type FieldErrors = Partial<Record<"name" | "company" | "role" | "email" | "phone", string>>;
 
 export default function DiagnosticoContent() {
+  const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
 
   // ===== Paso 1: preguntas =====
@@ -164,22 +166,16 @@ export default function DiagnosticoContent() {
   const [phone, setPhone] = useState(COUNTRY_PREFIX.GT);
 
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
 
-  // Banner general (pero ahora sticky + además marcamos campo)
   const [error, setError] = useState<string>("");
-
-  // Errores por campo (para marcar inputs)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  // Refs para scroll al error
   const nameRef = useRef<HTMLInputElement | null>(null);
   const companyRef = useRef<HTMLInputElement | null>(null);
   const roleRef = useRef<HTMLInputElement | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const phoneRef = useRef<HTMLInputElement | null>(null);
 
-  // Auto-prefijo al cambiar país
   const countryPrefix = useMemo(() => COUNTRY_PREFIX[country], [country]);
   React.useEffect(() => {
     const allPrefixes = Object.values(COUNTRY_PREFIX);
@@ -190,17 +186,16 @@ export default function DiagnosticoContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countryPrefix]);
 
-  // Limpia "Otro" si ya no aplica
   React.useEffect(() => {
     if (!industria.includes("Otro") && industriaOtro) setIndustriaOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [industria]);
+
   React.useEffect(() => {
     if (interes !== "Otro" && interesOtro) setInteresOtro("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interes]);
 
-  // ===== Validaciones Paso 1 =====
   const step1Valid = useMemo(() => {
     if (!industria.length) return false;
     if (industria.includes("Otro") && !isNonEmpty(industriaOtro)) return false;
@@ -211,8 +206,11 @@ export default function DiagnosticoContent() {
     return true;
   }, [industria, industriaOtro, interes, interesOtro]);
 
-  // ===== Validación Paso 2 (con mensajes) =====
-  function validateStep2(): { ok: boolean; errors: FieldErrors; firstRef?: React.RefObject<HTMLInputElement> } {
+  function validateStep2(): {
+    ok: boolean;
+    errors: FieldErrors;
+    firstRef?: React.RefObject<HTMLInputElement>;
+  } {
     const errors: FieldErrors = {};
 
     const nm = name.trim();
@@ -221,7 +219,6 @@ export default function DiagnosticoContent() {
 
     if (!isNonEmpty(nm)) errors.name = "Este campo es obligatorio.";
 
-    // Empresa / cargo / tel obligatorios (como pediste)
     const cp = company.trim();
     if (!isNonEmpty(cp)) errors.company = "Este campo es obligatorio.";
 
@@ -242,7 +239,6 @@ export default function DiagnosticoContent() {
       errors.phone = "Teléfono inválido. Usa formato internacional, ej. +502 5555 5555.";
     }
 
-    // decide el primer campo con error (orden visual)
     let first: React.RefObject<HTMLInputElement> | undefined;
     if (errors.name) first = { current: nameRef.current } as any;
     else if (errors.company) first = { current: companyRef.current } as any;
@@ -253,7 +249,12 @@ export default function DiagnosticoContent() {
     return { ok: Object.keys(errors).length === 0, errors, firstRef: first };
   }
 
-  function scrollToRef(ref: React.RefObject<HTMLInputElement> | { current: HTMLInputElement | null } | undefined) {
+  function scrollToRef(
+    ref:
+      | React.RefObject<HTMLInputElement>
+      | { current: HTMLInputElement | null }
+      | undefined
+  ) {
     const el = ref?.current;
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -338,8 +339,7 @@ export default function DiagnosticoContent() {
         throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
       }
 
-      setDone(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      router.push("/enviado");
     } catch (e: any) {
       setError(e?.message || "Ocurrió un error.");
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -389,28 +389,6 @@ export default function DiagnosticoContent() {
       </div>
     );
   };
-
-  if (done) {
-    return (
-      <div className="w-full max-w-2xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-3">¡Listo!</h1>
-        <p className="text-gray-700 mb-6">
-          Hemos recibido tu formulario de contacto. Una persona de nuestro equipo se pondrá en
-          contacto en menos de 24hrs.
-        </p>
-
-        <a
-          href="https://www.grupoinforum.com"
-          target="_blank"
-          rel="noopener"
-          className="inline-flex items-center justify-center rounded-[10px] px-5 py-3 font-semibold text-white"
-          style={{ backgroundColor: "#082a49" }}
-        >
-          Visita nuestro website
-        </a>
-      </div>
-    );
-  }
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-10">
