@@ -55,6 +55,10 @@ const INTERES_OPTIONS: Option[] = [
     label: "Fibbo portal para proveedores",
     value: "Fibbo portal para proveedores",
   },
+  {
+    label: "IPSO - Intelligent Process & Strategy Optimization",
+    value: "IPSO - Intelligent Process & Strategy Optimization",
+  },
   { label: "Otro", value: "Otro" },
 ];
 
