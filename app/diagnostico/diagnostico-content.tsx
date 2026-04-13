@@ -92,6 +92,34 @@ function getUTMs(): Record<string, string> {
   return utms;
 }
 
+function buildTrackingQueryString(): string {
+  if (typeof window === "undefined") return "";
+
+  const currentParams = new URLSearchParams(window.location.search);
+  const allowedKeys = [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+    "fbclid",
+    "msclkid",
+  ];
+
+  const finalParams = new URLSearchParams();
+
+  for (const key of allowedKeys) {
+    const value = currentParams.get(key);
+    if (value) {
+      finalParams.set(key, value);
+    }
+  }
+
+  const qs = finalParams.toString();
+  return qs ? `?${qs}` : "";
+}
+
 function isNonEmpty(s?: string) {
   return typeof s === "string" && s.trim().length > 0;
 }
@@ -343,7 +371,8 @@ export default function DiagnosticoContent() {
         throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
       }
 
-      router.push("/enviado");
+      const trackingQuery = buildTrackingQueryString();
+      router.push(`/enviado${trackingQuery}`);
     } catch (e: any) {
       setError(e?.message || "Ocurrió un error.");
       window.scrollTo({ top: 0, behavior: "smooth" });
