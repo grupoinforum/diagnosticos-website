@@ -371,8 +371,18 @@ export default function DiagnosticoContent() {
         throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
       }
 
-      const trackingQuery = buildTrackingQueryString();
-      router.push(`/enviado${trackingQuery}`);
+     if (typeof window !== "undefined") {
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event: "diagnostico_form_enviado",
+  });
+}
+
+const trackingQuery = buildTrackingQueryString();
+
+setTimeout(() => {
+  router.push(`/enviado${trackingQuery}`);
+}, 300);
     } catch (e: any) {
       setError(e?.message || "Ocurrió un error.");
       window.scrollTo({ top: 0, behavior: "smooth" });
