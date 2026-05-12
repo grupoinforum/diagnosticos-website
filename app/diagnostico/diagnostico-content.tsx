@@ -312,84 +312,90 @@ export default function DiagnosticoContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function submitAll() {
-    setError("");
-    setFieldErrors({});
+ async function submitAll() {
+  setError("");
+  setFieldErrors({});
 
-    if (!step1Valid) {
-      setError("Por favor completa las preguntas obligatorias.");
-      setStep(1);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-
-    const v2 = validateStep2();
-    if (!v2.ok) {
-      setError("Revisa los campos marcados en rojo.");
-      setFieldErrors(v2.errors);
-      scrollToRef(v2.firstRef as any);
-      return;
-    }
-
-    const items: AnswerItem[] = [
-      {
-        id: "industria",
-        value: industria,
-        ...(industria.includes("Otro") ? { extraText: industriaOtro.trim() } : {}),
-      },
-      {
-        id: "interes",
-        value: interes,
-        ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
-      },
-      {
-        id: "mensaje",
-        value: mensaje.trim(),
-      },
-    ];
-
-    const payload: SubmitPayload = {
-      name: name.trim(),
-      company: company.trim() || undefined,
-      role: role.trim() || undefined,
-      email: email.trim(),
-      country,
-      phone: phone.trim() || undefined,
-      answers: { utms: getUTMs(), items },
-    };
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok || !out?.ok) {
-        throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
-      }
-
-     if (typeof window !== "undefined") {
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push({
-    event: "diagnostico_form_enviado",
-  });
-}
-
-const trackingQuery = buildTrackingQueryString();
-
-setTimeout(() => {
-  router.push(`/enviado${trackingQuery}`);
-}, 300);
-    } catch (e: any) {
-      setError(e?.message || "Ocurrió un error.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } finally {
-      setLoading(false);
-    }
+  if (!step1Valid) {
+    setError("Por favor completa las preguntas obligatorias.");
+    setStep(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
   }
+
+  const v2 = validateStep2();
+  if (!v2.ok) {
+    setError("Revisa los campos marcados en rojo.");
+    setFieldErrors(v2.errors);
+    scrollToRef(v2.firstRef as any);
+    return;
+  }
+
+  const items: AnswerItem[] = [
+    {
+      id: "industria",
+      value: industria,
+      ...(industria.includes("Otro") ? { extraText: industriaOtro.trim() } : {}),
+    },
+    {
+      id: "interes",
+      value: interes,
+      ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
+    },
+    {
+      id: "mensaje",
+      value: mensaje.trim(),
+    },
+  ];
+
+  const payload: SubmitPayload = {
+    name: name.trim(),
+    company: company.trim() || undefined,
+    role: role.trim() || undefined,
+    email: email.trim(),
+    country,
+    phone: phone.trim() || undefined,
+    answers: { utms: getUTMs(), items },
+  };
+
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const out = await res.json().catch(() => ({}));
+
+    if (!res.ok || !out?.ok) {
+      throw new Error(out?.error || "No se logró enviar. Intenta nuevamente.");
+    }
+
+    if (typeof window !== "undefined") {
+      const dataLayerWindow = window as Window & {
+        dataLayer?: Array<Record<string, unknown>>;
+      };
+
+      dataLayerWindow.dataLayer = dataLayerWindow.dataLayer || [];
+      dataLayerWindow.dataLayer.push({
+        event: "diagnostico_form_enviado",
+      });
+    }
+
+    const trackingQuery = buildTrackingQueryString();
+
+    setTimeout(() => {
+      router.push(`/enviado${trackingQuery}`);
+    }, 300);
+  } catch (e: any) {
+    setError(e?.message || "Ocurrió un error.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } finally {
+    setLoading(false);
+  }
+}
 
   const inputBase =
     "w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-offset-1";
