@@ -1,4 +1,4 @@
-      return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
+        return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
     }
 
     // Normalizaciones (para consistencia)
