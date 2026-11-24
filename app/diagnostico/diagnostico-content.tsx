@@ -1,4 +1,4 @@
-              <input
+                          <input
                 ref={companyRef}
                 className={`${inputBase} ${fieldErrors.company ? inputBad : inputOk}`}
                 value={company}
