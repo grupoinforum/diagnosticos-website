@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 type CountryCode = "GT" | "SV" | "HN" | "PA" | "RD" | "EC";
 
 type AnswerItem = {
-  id: "industria" | "interes" | "mensaje";
+  id: "industria" | "interes" | "usuarios" | "mensaje";
   value: string | string[];
   extraText?: string;
 };
@@ -60,6 +60,12 @@ const INTERES_OPTIONS: Option[] = [
     value: "IPSO - Intelligent Process & Strategy Optimization",
   },
   { label: "Otro", value: "Otro" },
+];
+
+const USUARIOS_OPTIONS = [
+  "Menos de 10 usuarios",
+  "10-20 usuarios",
+  "Más de 20 usuarios",
 ];
 
 const COUNTRY_PREFIX: Record<CountryCode, string> = {
@@ -187,6 +193,7 @@ export default function DiagnosticoContent() {
   const [interes, setInteres] = useState<string>("");
   const [interesOtro, setInteresOtro] = useState<string>("");
 
+  const [usuarios, setUsuarios] = useState<string>("");
   const [mensaje, setMensaje] = useState<string>("");
 
   // ===== Paso 2: datos =====
@@ -235,8 +242,8 @@ export default function DiagnosticoContent() {
     if (!isNonEmpty(interes)) return false;
     if (interes === "Otro" && !isNonEmpty(interesOtro)) return false;
 
-    return true;
-  }, [industria, industriaOtro, interes, interesOtro]);
+    return USUARIOS_OPTIONS.includes(usuarios);
+  }, [industria, industriaOtro, interes, interesOtro, usuarios]);
 
   function validateStep2(): {
     ok: boolean;
@@ -341,6 +348,10 @@ export default function DiagnosticoContent() {
       id: "interes",
       value: interes,
       ...(interes === "Otro" ? { extraText: interesOtro.trim() } : {}),
+    },
+    {
+      id: "usuarios",
+      value: usuarios,
     },
     {
       id: "mensaje",
@@ -529,8 +540,29 @@ export default function DiagnosticoContent() {
           </div>
 
           <div className="rounded-xl border border-gray-200 p-5">
+            <p id="usuarios-pregunta" className="font-semibold mb-3">
+              3. ¿Cuántos usuarios utilizarán el sistema? <span className="text-red-600">*</span>
+            </p>
+
+            <div className="space-y-2" role="radiogroup" aria-labelledby="usuarios-pregunta" aria-required="true">
+              {USUARIOS_OPTIONS.map((option) => (
+                <label key={option} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="usuarios"
+                    value={option}
+                    checked={usuarios === option}
+                    onChange={(e) => setUsuarios(e.target.value)}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-5">
             <p className="font-semibold mb-2">
-              3. Mensaje <span className="text-gray-500 font-normal">(opcional)</span>
+              4. Mensaje <span className="text-gray-500 font-normal">(opcional)</span>
             </p>
             <textarea
               className="w-full min-h-[110px] rounded-lg border border-gray-300 px-3 py-2"
