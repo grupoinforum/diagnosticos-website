@@ -277,6 +277,7 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
     const mapLabel: Record<string, string> = {
       industria: "Industria",
       interes: "Interés",
+      usuarios: "Usuarios del sistema",
       mensaje: "Mensaje",
     };
 
@@ -294,6 +295,12 @@ function briefAnswersSummary(answers?: Payload["answers"]) {
 }
 
 /* ========= Validación central (server) ========= */
+const USUARIOS_OPTIONS = [
+  "Menos de 10 usuarios",
+  "10-20 usuarios",
+  "Más de 20 usuarios",
+];
+
 function validatePayload(data: Payload): string | null {
   if (!isNonEmpty(data?.name)) return "Por favor completa tu nombre.";
   if (!isNonEmpty(data?.company)) return "Por favor completa tu empresa.";
@@ -306,6 +313,12 @@ function validatePayload(data: Payload): string | null {
   if (!isNonEmpty(data?.phone)) return "Por favor completa tu teléfono.";
   if (!isValidPhone(data.phone!))
     return "Por favor ingresa un teléfono válido con prefijo internacional. Ej: +50212345678";
+  const items = data.answers?.items;
+  const usuarios = Array.isArray(items) ? items.filter((item) => item?.id === "usuarios") : [];
+  if (usuarios.length !== 1 || !USUARIOS_OPTIONS.includes(usuarios[0].value)) {
+    return "Por favor selecciona cuántos usuarios utilizarán el sistema.";
+  }
+
   return null;
 }
 
